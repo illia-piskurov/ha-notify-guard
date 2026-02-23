@@ -1,0 +1,28 @@
+{
+  "name": "notify-guard",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@biomejs/biome": "2.4.3",
+    "@types/bun": "latest",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.2.7"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "hono": "^4.12.0"
+  },
+  "scripts": {
+    "format": "biome format --write ./src",
+    "lint": "biome check --apply ./src",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{js,ts,svelte}": [
+      "biome check --apply --no-errors-on-unmatched"
+    ]
+  }
+}
