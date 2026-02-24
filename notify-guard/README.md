@@ -1,44 +1,19 @@
-# notify-guard (backend)
+# HA Notify Guard
 
-Backend service for HA Notify Guard.
+HA Notify Guard is a device monitoring service for Home Assistant:
 
-## Stack
+- pulls IP addresses from NetBox,
+- checks availability via Ping and Modbus TCP (502),
+- sends Telegram notifications (multiple bots and chats),
+- stores queue data and history in SQLite,
+- retries delivery with backoff when internet connectivity is unstable.
 
-- Bun
-- Hono
-- TypeORM + SQLite
+## Features
 
-## Installation
-
-```bash
-bun install
-```
-
-## Run
-
-From the repository root:
-
-```bash
-bun run notify-guard/src/index.ts
-```
-
-## Formatting and lint
-
-```bash
-bun run format
-bun run lint
-```
-
-## Architecture
-
-- `src/index.ts` — entrypoint.
-- `src/app.ts` — creates the Hono app.
-- `src/db/` — entities + datasource.
-- `src/routes/` — HTTP API.
-- `src/services/` — business logic.
-- `src/workers/` — background jobs.
-- `src/lib/` — shared utilities (logging, etc.).
-
-## See also
-
-For full product and API documentation, see the root README: `../README.md`.
+- NetBox device sync from `ipam/ip-addresses` with pagination.
+- Enable/disable Ping and Modbus monitoring per device.
+- Assign devices to bots, with support for multiple chats per bot.
+- Anti-spam alert logic: one outage notification per outage episode.
+- Guaranteed delivery: Telegram queue with automatic retries.
+- Device availability history (online/offline slices by period).
+- Svelte web UI with EN/UA localization.

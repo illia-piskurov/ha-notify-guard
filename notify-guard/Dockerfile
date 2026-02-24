@@ -11,7 +11,9 @@ RUN apk add --no-cache bash curl jq sqlite
 WORKDIR /app
 
 COPY package.json bun.lock* ./
-RUN bun install
+RUN apk add --no-cache --virtual .build-deps python3 make g++ linux-headers sqlite-dev pkgconf && \
+    bun install && \
+    apk del .build-deps
 
 COPY src ./src
 COPY tsconfig.json ./
