@@ -1,5 +1,7 @@
 export async function api<T>(url: string, init?: RequestInit): Promise<T> {
-    const response = await fetch(url, {
+    const resolvedUrl = url.startsWith('/api/') ? url.slice(1) : url;
+
+    const response = await fetch(resolvedUrl, {
         ...init,
         headers: {
             'Content-Type': 'application/json',
