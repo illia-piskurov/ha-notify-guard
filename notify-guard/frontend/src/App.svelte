@@ -8,53 +8,22 @@
     import { Checkbox } from "$lib/components/ui/checkbox/index.js";
     import * as Dialog from "$lib/components/ui/dialog/index.js";
     import * as Table from "$lib/components/ui/table/index.js";
+    import { api } from "$lib/api/client";
+    import {
+        type Bot,
+        type BotChat,
+        type Device,
+        type DeviceHistorySlice,
+        type HistoryPeriod,
+        type NetboxSettings,
+    } from "$lib/api/types";
     import { normalizeLocale, setAppLocale, type AppLocale } from "$lib/i18n";
-
-    type Device = {
-        id: number;
-        name: string;
-        ip: string;
-        hasModbusTag: boolean;
-        monitorPing: boolean;
-        monitorModbus: boolean;
-        lastPingStatus: string;
-        lastModbusStatus: string;
-        lastSeenAt: string | null;
-        assignedBotIds: number[];
-    };
-
-    type Bot = {
-        id: number;
-        name: string;
-        chatCount: number;
-        activeChatCount: number;
-    };
-
-    type BotChat = {
-        id: number;
-        chatId: string;
-        isActive: boolean;
-    };
-
-    type NetboxSettings = {
-        netbox_url: string;
-        netbox_token: string;
-        poll_seconds: number;
-    };
 
     type Toast = {
         id: number;
         message: string;
         kind: "success" | "error";
     };
-
-    type DeviceHistorySlice = {
-        status: "online" | "offline";
-        startedAt: string;
-        endedAt: string | null;
-    };
-
-    type HistoryPeriod = "24h" | "7d" | "30d" | "all";
 
     type DeviceSortKey = "name" | "ip" | "ping" | "modbus" | "bots";
     type SortDirection = "asc" | "desc";
@@ -380,24 +349,6 @@
         } catch (error) {
             pushToast(toError(error), "error");
         }
-    }
-
-    async function api<T>(url: string, init?: RequestInit): Promise<T> {
-        const response = await fetch(url, {
-            ...init,
-            headers: {
-                "Content-Type": "application/json",
-                ...(init?.headers ?? {}),
-            },
-        });
-
-        const payload = await response.json().catch(() => null);
-
-        if (!response.ok) {
-            throw new Error(payload?.error || `HTTP ${response.status}`);
-        }
-
-        return payload as T;
     }
 
     function toggleAssignedBot(

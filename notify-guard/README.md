@@ -1,15 +1,44 @@
-# notify-guard
+# notify-guard (backend)
 
-To install dependencies:
+Backend-сервис для HA Notify Guard.
+
+## Stack
+
+- Bun
+- Hono
+- TypeORM + SQLite
+
+## Установка
 
 ```bash
 bun install
 ```
 
-To run:
+## Запуск
+
+Из корня репозитория:
 
 ```bash
-bun run index.ts
+bun run notify-guard/src/index.ts
 ```
 
-This project was created using `bun init` in bun v1.3.3. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.
+## Форматирование и lint
+
+```bash
+bun run format
+bun run lint
+```
+
+## Архитектура
+
+- `src/index.ts` — entrypoint.
+- `src/app.ts` — создание Hono app.
+- `src/db/` — entities + datasource.
+- `src/routes/` — HTTP API.
+- `src/services/` — бизнес-логика.
+- `src/workers/` — фоновые задачи.
+- `src/lib/` — общие утилиты (логирование и т.д.).
+
+## См. также
+
+Полное описание продукта и API — в корневом README: `../README.md`.
