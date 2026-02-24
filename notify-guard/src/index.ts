@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { Socket } from 'node:net';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { serveStatic } from 'hono/bun';
 import { Hono } from 'hono';
 import {
@@ -35,6 +36,21 @@ class Bot {
 
     @Column({ type: 'text' })
     token!: string;
+
+    @Column({ name: 'chat_id', type: 'text', default: '' })
+    chatId!: string;
+
+    @Column({ name: 'is_active', type: 'boolean', default: true })
+    isActive!: boolean;
+}
+
+@Entity('bot_chats')
+class BotChat {
+    @PrimaryGeneratedColumn()
+    id!: number;
+
+    @Column({ name: 'bot_id', type: 'integer' })
+    botId!: number;
 
     @Column({ name: 'chat_id', type: 'text' })
     chatId!: string;
@@ -108,6 +124,9 @@ class Notification {
     @Column({ name: 'last_error', type: 'text', nullable: true })
     lastError!: string | null;
 
+    @Column({ name: 'next_attempt_at', type: 'datetime', nullable: true })
+    nextAttemptAt!: Date | null;
+
     @CreateDateColumn({ name: 'created_at', type: 'datetime' })
     createdAt!: Date;
 
@@ -116,6 +135,36 @@ class Notification {
 
     @UpdateDateColumn({ name: 'updated_at', type: 'datetime', nullable: true })
     updatedAt!: Date | null;
+}
+
+@Entity('app_logs')
+class AppLog {
+    @PrimaryGeneratedColumn()
+    id!: number;
+
+    @Column({ type: 'text' })
+    level!: 'info' | 'warn' | 'error';
+
+    @Column({ type: 'text' })
+    scope!: string;
+
+    @Column({ type: 'text' })
+    message!: string;
+
+    @Column({ type: 'text', nullable: true })
+    details!: string | null;
+
+    @Column({ type: 'text', nullable: true })
+    path!: string | null;
+
+    @Column({ type: 'text', nullable: true })
+    method!: string | null;
+
+    @Column({ type: 'integer', nullable: true })
+    status!: number | null;
+
+    @CreateDateColumn({ name: 'created_at', type: 'datetime' })
+    createdAt!: Date;
 }
 
 @Entity('device_ping_history')
@@ -131,6 +180,21 @@ class DevicePingHistory {
 
     @CreateDateColumn({ name: 'checked_at', type: 'datetime' })
     checkedAt!: Date;
+}
+
+@Entity('device_alert_state')
+class DeviceAlertState {
+    @PrimaryColumn({ name: 'device_id', type: 'integer' })
+    deviceId!: number;
+
+    @Column({ name: 'ping_down_sent', type: 'boolean', default: false })
+    pingDownSent!: boolean;
+
+    @Column({ name: 'modbus_down_sent', type: 'boolean', default: false })
+    modbusDownSent!: boolean;
+
+    @UpdateDateColumn({ name: 'updated_at', type: 'datetime', nullable: true })
+    updatedAt!: Date | null;
 }
 
 type NetboxSettings = {
@@ -152,8 +216,34 @@ type DeviceView = {
     assignedBotIds: number[];
 };
 
+type PingAvailabilitySlice = {
+    status: 'online' | 'offline';
+    startedAt: string;
+    endedAt: string | null;
+};
+
+type NetboxTag = {
+    slug?: string;
+    name?: string;
+};
+
+type NetboxIpAddress = {
+    id: number;
+    address: string;
+    description?: string | null;
+    dns_name?: string | null;
+    tags?: NetboxTag[];
+};
+
+type NetboxIpAddressesPage = {
+    results?: NetboxIpAddress[];
+    next?: string | null;
+};
+
 const app = new Hono();
-const dbPath = existsSync('/data') ? '/data/notifications.db' : join(process.cwd(), 'data', 'notifications.db');
+const sourceDir = dirname(fileURLToPath(import.meta.url));
+const addonRoot = dirname(sourceDir);
+const dbPath = existsSync('/data') ? '/data/notifications.db' : join(addonRoot, 'data', 'notifications.db');
 const DIST_ROOT = './dist';
 
 mkdirSync(dirname(dbPath), { recursive: true });
@@ -161,10 +251,12 @@ mkdirSync(dirname(dbPath), { recursive: true });
 const dataSource = new DataSource({
     type: 'sqlite',
     database: dbPath,
-    entities: [Setting, Bot, Device, DeviceNotification, Notification, DevicePingHistory],
+    entities: [Setting, Bot, BotChat, Device, DeviceNotification, Notification, AppLog, DevicePingHistory, DeviceAlertState],
     synchronize: true,
     logging: false,
 });
+
+let isMonitorCycleRunning = false;
 
 await initialize();
 
@@ -179,14 +271,60 @@ app.use('/api/*', async (c, next) => {
         return c.body(null, 204);
     }
 
-    return next();
+    const startedAt = Date.now();
+
+    try {
+        await next();
+
+        if (c.res.status >= 500) {
+            await writeAppLog({
+                level: 'error',
+                scope: 'http',
+                message: 'HTTP request failed',
+                details: `duration_ms=${Date.now() - startedAt}`,
+                path: c.req.path,
+                method: c.req.method,
+                status: c.res.status,
+            });
+        }
+
+        return c.res;
+    } catch (error) {
+        await writeAppLog({
+            level: 'error',
+            scope: 'http',
+            message: 'Unhandled exception in request',
+            details: buildErrorDetails(error),
+            path: c.req.path,
+            method: c.req.method,
+            status: 500,
+        });
+
+        throw error;
+    }
+});
+
+app.onError((error, c) => {
+    void writeAppLog({
+        level: 'error',
+        scope: 'http',
+        message: 'Hono onError handler',
+        details: buildErrorDetails(error),
+        path: c.req.path,
+        method: c.req.method,
+        status: 500,
+    });
+
+    if (c.req.path.startsWith('/api/')) {
+        return c.json({ success: false, error: 'Internal server error' }, 500);
+    }
+
+    return c.text('Internal server error', 500);
 });
 
 app.get('/api/health', (c) => c.json({ ok: true }));
 
-app.get('/api/settings/netbox', async (c) => {
-    return c.json(await getNetboxSettings());
-});
+app.get('/api/settings/netbox', async (c) => c.json(await getNetboxSettings()));
 
 app.put('/api/settings/netbox', async (c) => {
     const body = await c.req.json<Partial<NetboxSettings>>();
@@ -216,6 +354,7 @@ app.post('/api/netbox/sync', async (c) => {
         const deviceRepo = getRepo(Device);
         const mappingRepo = getRepo(DeviceNotification);
         const pingHistoryRepo = getRepo(DevicePingHistory);
+        const alertStateRepo = getRepo(DeviceAlertState);
         let synced = 0;
         const syncedIds = new Set<number>();
 
@@ -247,13 +386,12 @@ app.post('/api/netbox/sync', async (c) => {
         }
 
         const existingDevices = await deviceRepo.find({ select: { id: true } });
-        const staleDeviceIds = existingDevices
-            .map((device) => device.id)
-            .filter((id) => !syncedIds.has(id));
+        const staleDeviceIds = existingDevices.map((device) => device.id).filter((id) => !syncedIds.has(id));
 
         if (staleDeviceIds.length > 0) {
             await mappingRepo.delete({ deviceId: In(staleDeviceIds) });
             await pingHistoryRepo.delete({ deviceId: In(staleDeviceIds) });
+            await alertStateRepo.delete({ deviceId: In(staleDeviceIds) });
             await deviceRepo.delete({ id: In(staleDeviceIds) });
         }
 
@@ -264,13 +402,21 @@ app.post('/api/netbox/sync', async (c) => {
             removed: staleDeviceIds.length,
         });
     } catch (error) {
+        await writeAppLog({
+            level: 'error',
+            scope: 'netbox',
+            message: 'NetBox sync failed',
+            details: buildErrorDetails(error),
+            path: c.req.path,
+            method: c.req.method,
+            status: 500,
+        });
+
         return c.json({ success: false, error: toErrorMessage(error) }, 500);
     }
 });
 
-app.get('/api/devices', async (c) => {
-    return c.json({ devices: await getDevices() });
-});
+app.get('/api/devices', async (c) => c.json({ devices: await getDevices() }));
 
 app.get('/api/devices/:id/history', async (c) => {
     const id = Number(c.req.param('id'));
@@ -314,7 +460,10 @@ app.get('/api/devices/:id/history', async (c) => {
             .limit(1)
             .getOne();
 
-        events = events.filter((event) => event.checkedAt >= fromDate && event.checkedAt <= now);
+        events = events.filter((event) => {
+            const checkedAt = toValidDate(event.checkedAt);
+            return checkedAt !== null && checkedAt >= fromDate && checkedAt <= now;
+        });
 
         if (previous) {
             events = [previous, ...events];
@@ -333,10 +482,19 @@ app.get('/api/devices/:id/history', async (c) => {
             ip: device.ip,
             monitorPing: device.monitorPing,
         },
-        history: events.map((item) => ({
-            status: item.status,
-            checkedAt: item.checkedAt.toISOString(),
-        })),
+        history: events
+            .map((item) => {
+                const checkedAt = toValidDate(item.checkedAt);
+                if (!checkedAt) {
+                    return null;
+                }
+
+                return {
+                    status: item.status,
+                    checkedAt: checkedAt.toISOString(),
+                };
+            })
+            .filter((item): item is { status: 'online' | 'offline'; checkedAt: string } => item !== null),
         slices,
     });
 });
@@ -387,31 +545,41 @@ app.patch('/api/devices/:id', async (c) => {
 
 app.get('/api/bots', async (c) => {
     const botRepo = getRepo(Bot);
+    const botChatRepo = getRepo(BotChat);
+
     const bots = await botRepo.find({ order: { id: 'DESC' } });
+    const chats = await botChatRepo.find();
+
+    const chatsByBotId = new Map<number, BotChat[]>();
+    for (const chat of chats) {
+        const list = chatsByBotId.get(chat.botId) ?? [];
+        list.push(chat);
+        chatsByBotId.set(chat.botId, list);
+    }
 
     return c.json({
         bots: bots.map((bot) => ({
             id: bot.id,
             name: bot.name,
-            chatId: bot.chatId,
-            isActive: bot.isActive,
+            chatCount: chatsByBotId.get(bot.id)?.length ?? 0,
+            activeChatCount: chatsByBotId.get(bot.id)?.filter((chat) => chat.isActive).length ?? 0,
         })),
     });
 });
 
 app.post('/api/bots', async (c) => {
-    const body = await c.req.json<{ name?: string; token?: string; chatId?: string; isActive?: boolean }>();
+    const body = await c.req.json<{ name?: string; token?: string }>();
 
-    if (!body.name?.trim() || !body.token?.trim() || !body.chatId?.trim()) {
-        return c.json({ success: false, error: 'name, token and chatId are required' }, 400);
+    if (!body.name?.trim() || !body.token?.trim()) {
+        return c.json({ success: false, error: 'name and token are required' }, 400);
     }
 
     const botRepo = getRepo(Bot);
     const entity = botRepo.create({
         name: body.name.trim(),
         token: body.token.trim(),
-        chatId: body.chatId.trim(),
-        isActive: body.isActive !== false,
+        chatId: '',
+        isActive: true,
     });
 
     const created = await botRepo.save(entity);
@@ -420,7 +588,7 @@ app.post('/api/bots', async (c) => {
 
 app.patch('/api/bots/:id', async (c) => {
     const id = Number(c.req.param('id'));
-    const body = await c.req.json<{ name?: string; token?: string; chatId?: string; isActive?: boolean }>();
+    const body = await c.req.json<{ name?: string; token?: string }>();
 
     if (Number.isNaN(id)) {
         return c.json({ success: false, error: 'Invalid bot id' }, 400);
@@ -435,10 +603,119 @@ app.patch('/api/bots/:id', async (c) => {
 
     bot.name = body.name?.trim() || bot.name;
     bot.token = body.token?.trim() || bot.token;
-    bot.chatId = body.chatId?.trim() || bot.chatId;
-    bot.isActive = typeof body.isActive === 'boolean' ? body.isActive : bot.isActive;
 
     await botRepo.save(bot);
+    return c.json({ success: true });
+});
+
+app.get('/api/bots/:id', async (c) => {
+    const id = Number(c.req.param('id'));
+
+    if (Number.isNaN(id)) {
+        return c.json({ success: false, error: 'Invalid bot id' }, 400);
+    }
+
+    const botRepo = getRepo(Bot);
+    const botChatRepo = getRepo(BotChat);
+    const bot = await botRepo.findOneBy({ id });
+
+    if (!bot) {
+        return c.json({ success: false, error: 'Bot not found' }, 404);
+    }
+
+    const chats = await botChatRepo.find({
+        where: { botId: id },
+        order: { id: 'DESC' },
+    });
+
+    return c.json({
+        bot: {
+            id: bot.id,
+            name: bot.name,
+            token: bot.token,
+        },
+        chats: chats.map((chat) => ({
+            id: chat.id,
+            chatId: chat.chatId,
+            isActive: chat.isActive,
+        })),
+    });
+});
+
+app.post('/api/bots/:id/chats', async (c) => {
+    const id = Number(c.req.param('id'));
+    const body = await c.req.json<{ chatId?: string; isActive?: boolean }>();
+
+    if (Number.isNaN(id)) {
+        return c.json({ success: false, error: 'Invalid bot id' }, 400);
+    }
+
+    if (!body.chatId?.trim()) {
+        return c.json({ success: false, error: 'chatId is required' }, 400);
+    }
+
+    const botRepo = getRepo(Bot);
+    const botChatRepo = getRepo(BotChat);
+    const bot = await botRepo.findOneBy({ id });
+
+    if (!bot) {
+        return c.json({ success: false, error: 'Bot not found' }, 404);
+    }
+
+    const chat = botChatRepo.create({
+        botId: id,
+        chatId: body.chatId.trim(),
+        isActive: body.isActive !== false,
+    });
+
+    const created = await botChatRepo.save(chat);
+    return c.json({
+        success: true,
+        chat: {
+            id: created.id,
+            chatId: created.chatId,
+            isActive: created.isActive,
+        },
+    });
+});
+
+app.patch('/api/bot-chats/:id', async (c) => {
+    const id = Number(c.req.param('id'));
+    const body = await c.req.json<{ chatId?: string; isActive?: boolean }>();
+
+    if (Number.isNaN(id)) {
+        return c.json({ success: false, error: 'Invalid chat id' }, 400);
+    }
+
+    const botChatRepo = getRepo(BotChat);
+    const chat = await botChatRepo.findOneBy({ id });
+
+    if (!chat) {
+        return c.json({ success: false, error: 'Chat not found' }, 404);
+    }
+
+    if (typeof body.chatId === 'string' && body.chatId.trim()) {
+        chat.chatId = body.chatId.trim();
+    }
+
+    if (typeof body.isActive === 'boolean') {
+        chat.isActive = body.isActive;
+    }
+
+    await botChatRepo.save(chat);
+    return c.json({ success: true });
+});
+
+app.delete('/api/bot-chats/:id', async (c) => {
+    const id = Number(c.req.param('id'));
+
+    if (Number.isNaN(id)) {
+        return c.json({ success: false, error: 'Invalid chat id' }, 400);
+    }
+
+    const botChatRepo = getRepo(BotChat);
+    await botChatRepo.delete({ id });
+
     return c.json({ success: true });
 });
 
@@ -450,8 +727,10 @@ app.delete('/api/bots/:id', async (c) => {
     }
 
     const mappingRepo = getRepo(DeviceNotification);
+    const botChatRepo = getRepo(BotChat);
     const botRepo = getRepo(Bot);
 
+    await botChatRepo.delete({ botId: id });
     await mappingRepo.delete({ botId: id });
     await botRepo.delete({ id });
 
@@ -461,11 +740,19 @@ app.delete('/api/bots/:id', async (c) => {
 app.get('/api/logs', async (c) => {
     const limitRaw = Number(c.req.query('limit') ?? 50);
     const limit = Number.isNaN(limitRaw) ? 50 : Math.min(Math.max(limitRaw, 1), 200);
+    const appLimitRaw = Number(c.req.query('app_limit') ?? 50);
+    const appLimit = Number.isNaN(appLimitRaw) ? 50 : Math.min(Math.max(appLimitRaw, 1), 200);
 
     const notificationRepo = getRepo(Notification);
+    const appLogRepo = getRepo(AppLog);
     const rows = await notificationRepo.find({
         order: { id: 'DESC' },
         take: limit,
+    });
+
+    const appRows = await appLogRepo.find({
+        order: { id: 'DESC' },
+        take: appLimit,
     });
 
     return c.json({
@@ -475,8 +762,20 @@ app.get('/api/logs', async (c) => {
             status: row.status,
             attempts: row.attempts,
             last_error: row.lastError,
+            next_attempt_at: toDateValue(row.nextAttemptAt),
             created_at: toDateValue(row.createdAt),
             sent_at: toDateValue(row.sentAt),
+        })),
+        app_logs: appRows.map((row) => ({
+            id: row.id,
+            level: row.level,
+            scope: row.scope,
+            message: row.message,
+            details: row.details,
+            path: row.path,
+            method: row.method,
+            status: row.status,
+            created_at: toDateValue(row.createdAt),
         })),
     });
 });
@@ -495,10 +794,21 @@ async function initialize() {
         await dataSource.initialize();
     }
 
+    await migrateLegacyBotChats();
+
     setInterval(() => {
-        runMonitorCycle().catch((error) => {
-            console.error('monitor cycle failed:', error);
-        });
+        if (isMonitorCycleRunning) {
+            return;
+        }
+
+        isMonitorCycleRunning = true;
+        runMonitorCycle()
+            .catch((error) => {
+                console.error('monitor cycle failed:', error);
+            })
+            .finally(() => {
+                isMonitorCycleRunning = false;
+            });
     }, 30_000);
 
     setInterval(() => {
@@ -510,6 +820,7 @@ async function initialize() {
 
 async function runMonitorCycle() {
     const deviceRepo = getRepo(Device);
+    const alertStateRepo = getRepo(DeviceAlertState);
     const devices = await deviceRepo.find({
         where: [{ monitorPing: true }, { monitorModbus: true }],
     });
@@ -525,12 +836,41 @@ async function runMonitorCycle() {
             await recordPingHistoryIfChanged(device.id, currentPingStatus);
         }
 
-        if (pingEnabled && device.lastPingStatus === 'online' && currentPingStatus === 'offline') {
-            await queueAlert(device, `🚨 Ping fail: ${device.name} (${device.ip}) is unreachable`);
+        let alertState = await alertStateRepo.findOneBy({ deviceId: device.id });
+        if (!alertState) {
+            alertState = alertStateRepo.create({
+                deviceId: device.id,
+                pingDownSent: false,
+                modbusDownSent: false,
+            });
         }
 
-        if (modbusEnabled && device.lastModbusStatus === 'open' && currentModbusStatus === 'closed') {
+        let alertStateChanged = false;
+
+        if (pingEnabled && currentPingStatus === 'offline' && !alertState.pingDownSent) {
+            await queueAlert(device, `🚨 Ping fail: ${device.name} (${device.ip}) is unreachable`);
+            alertState.pingDownSent = true;
+            alertStateChanged = true;
+        }
+
+        if ((!pingEnabled || currentPingStatus === 'online') && alertState.pingDownSent) {
+            alertState.pingDownSent = false;
+            alertStateChanged = true;
+        }
+
+        if (modbusEnabled && currentModbusStatus === 'closed' && !alertState.modbusDownSent) {
             await queueAlert(device, `⚠️ Modbus fail: ${device.name} (${device.ip}) TCP/502 is closed`);
+            alertState.modbusDownSent = true;
+            alertStateChanged = true;
+        }
+
+        if ((!modbusEnabled || currentModbusStatus === 'open') && alertState.modbusDownSent) {
+            alertState.modbusDownSent = false;
+            alertStateChanged = true;
+        }
+
+        if (alertStateChanged) {
+            await alertStateRepo.save(alertState);
         }
 
         device.lastPingStatus = currentPingStatus;
@@ -552,21 +892,21 @@ async function recordPingHistoryIfChanged(deviceId: number, status: 'online' | '
         return;
     }
 
-    await historyRepo.save(historyRepo.create({
-        deviceId,
-        status,
-    }));
+    await historyRepo.save(historyRepo.create({ deviceId, status }));
 }
 
 async function runTelegramWorker() {
     const notificationRepo = getRepo(Notification);
+    const now = new Date();
     const jobs = await notificationRepo
         .createQueryBuilder('notification')
         .where('(notification.status = :pending OR notification.status = :failed)', {
             pending: 'pending',
             failed: 'failed',
         })
-        .andWhere('notification.attempts < :maxAttempts', { maxAttempts: 5 })
+        .andWhere('(notification.next_attempt_at IS NULL OR notification.next_attempt_at <= :now)', {
+            now,
+        })
         .orderBy('notification.id', 'ASC')
         .limit(20)
         .getMany();
@@ -590,11 +930,14 @@ async function runTelegramWorker() {
             job.sentAt = new Date();
             job.attempts += 1;
             job.lastError = null;
+            job.nextAttemptAt = null;
             await notificationRepo.save(job);
         } catch (error) {
+            const attempts = job.attempts + 1;
             job.status = 'failed';
-            job.attempts += 1;
+            job.attempts = attempts;
             job.lastError = toErrorMessage(error);
+            job.nextAttemptAt = new Date(Date.now() + getRetryDelayMs(attempts));
             await notificationRepo.save(job);
         }
     }
@@ -603,6 +946,7 @@ async function runTelegramWorker() {
 async function queueAlert(device: Device, message: string) {
     const mappingRepo = getRepo(DeviceNotification);
     const botRepo = getRepo(Bot);
+    const botChatRepo = getRepo(BotChat);
     const notificationRepo = getRepo(Notification);
 
     const mappings = await mappingRepo.findBy({ deviceId: device.id });
@@ -611,31 +955,86 @@ async function queueAlert(device: Device, message: string) {
     }
 
     const botIds = mappings.map((item) => item.botId);
-    const activeBots = await botRepo.find({
+    const assignedBots = await botRepo.find({
+        where: { id: In(botIds) },
+    });
+
+    if (assignedBots.length === 0) {
+        return;
+    }
+
+    const chats = await botChatRepo.find({
         where: {
-            id: In(botIds),
+            botId: In(assignedBots.map((bot) => bot.id)),
             isActive: true,
         },
     });
 
-    if (activeBots.length === 0) {
+    if (chats.length === 0) {
         return;
     }
 
-    const notifications = activeBots.map((bot) =>
-        notificationRepo.create({
-            botId: bot.id,
-            token: bot.token,
-            chatId: bot.chatId,
-            message,
-            status: 'pending',
-            attempts: 0,
-            sentAt: null,
-            lastError: null,
-        }),
-    );
+    const tokenByBotId = new Map(assignedBots.map((bot) => [bot.id, bot.token]));
+    const seenTargets = new Set<string>();
+    const notifications = chats
+        .map((chat) => {
+            const dedupeKey = `${chat.botId}:${chat.chatId}`;
+            if (seenTargets.has(dedupeKey)) {
+                return null;
+            }
+            seenTargets.add(dedupeKey);
+
+            const token = tokenByBotId.get(chat.botId);
+            if (!token) {
+                return null;
+            }
+
+            return notificationRepo.create({
+                botId: chat.botId,
+                token,
+                chatId: chat.chatId,
+                message,
+                status: 'pending',
+                attempts: 0,
+                sentAt: null,
+                lastError: null,
+                nextAttemptAt: null,
+            });
+        })
+        .filter((item): item is Notification => item !== null);
+
+    if (notifications.length === 0) {
+        return;
+    }
 
     await notificationRepo.save(notifications);
+}
+
+async function migrateLegacyBotChats() {
+    const botRepo = getRepo(Bot);
+    const botChatRepo = getRepo(BotChat);
+
+    const bots = await botRepo.find();
+    for (const bot of bots) {
+        if (!bot.chatId?.trim()) {
+            continue;
+        }
+
+        const exists = await botChatRepo.findOneBy({
+            botId: bot.id,
+            chatId: bot.chatId.trim(),
+        });
+
+        if (exists) {
+            continue;
+        }
+
+        await botChatRepo.save(botChatRepo.create({
+            botId: bot.id,
+            chatId: bot.chatId.trim(),
+            isActive: bot.isActive,
+        }));
+    }
 }
 
 async function getDevices(): Promise<DeviceView[]> {
@@ -744,29 +1143,60 @@ function toErrorMessage(error: unknown): string {
     return String(error);
 }
 
-type NetboxTag = {
-    slug?: string;
-    name?: string;
-};
+function buildErrorDetails(error: unknown): string {
+    if (error instanceof Error) {
+        return truncateLogText(error.stack ?? error.message);
+    }
 
-type NetboxIpAddress = {
-    id: number;
-    address: string;
-    description?: string | null;
-    dns_name?: string | null;
-    tags?: NetboxTag[];
-};
+    return truncateLogText(String(error));
+}
 
-type NetboxIpAddressesPage = {
-    results?: NetboxIpAddress[];
-    next?: string | null;
-};
+function truncateLogText(value: string, maxLength = 4000): string {
+    if (value.length <= maxLength) {
+        return value;
+    }
 
-type PingAvailabilitySlice = {
-    status: 'online' | 'offline';
-    startedAt: string;
-    endedAt: string | null;
-};
+    return `${value.slice(0, maxLength)}...(truncated)`;
+}
+
+async function writeAppLog(entry: {
+    level: 'info' | 'warn' | 'error';
+    scope: string;
+    message: string;
+    details?: string | null;
+    path?: string | null;
+    method?: string | null;
+    status?: number | null;
+}) {
+    try {
+        if (!dataSource.isInitialized) {
+            return;
+        }
+
+        const appLogRepo = getRepo(AppLog);
+        await appLogRepo.save(appLogRepo.create({
+            level: entry.level,
+            scope: entry.scope,
+            message: truncateLogText(entry.message, 512),
+            details: entry.details ? truncateLogText(entry.details) : null,
+            path: entry.path ?? null,
+            method: entry.method ?? null,
+            status: entry.status ?? null,
+        }));
+    } catch (logError) {
+        console.error('failed to write app log:', logError);
+    }
+}
+
+function getRetryDelayMs(attempt: number): number {
+    const retryDelays = [5_000, 15_000, 30_000, 60_000, 120_000, 300_000] as const;
+    if (attempt <= 0) {
+        return retryDelays[0] ?? 5_000;
+    }
+
+    const index = Math.min(attempt - 1, retryDelays.length - 1);
+    return retryDelays[index] ?? 300_000;
+}
 
 async function fetchNetboxIpAddresses(baseUrl: string, token: string): Promise<NetboxIpAddress[]> {
     const headers = {
@@ -843,14 +1273,20 @@ function buildPingAvailabilitySlices(
     const slices: PingAvailabilitySlice[] = [];
 
     for (const [index, current] of events.entries()) {
+        const currentCheckedAt = toValidDate(current.checkedAt);
+        if (!currentCheckedAt) {
+            continue;
+        }
+
         const next = events[index + 1] ?? null;
+        const nextCheckedAt = next ? toValidDate(next.checkedAt) : null;
 
-        const start = fromDate && current.checkedAt < fromDate
+        const start = fromDate && currentCheckedAt < fromDate
             ? fromDate
-            : current.checkedAt;
+            : currentCheckedAt;
 
-        const end = next
-            ? next.checkedAt
+        const end = nextCheckedAt
+            ? nextCheckedAt
             : (fromDate ? now : null);
 
         if (fromDate && end && end <= fromDate) {
@@ -869,6 +1305,19 @@ function buildPingAvailabilitySlices(
     }
 
     return slices;
+}
+
+function toValidDate(value: Date | string | null | undefined): Date | null {
+    if (value instanceof Date) {
+        return Number.isNaN(value.getTime()) ? null : value;
+    }
+
+    if (typeof value === 'string') {
+        const parsed = new Date(value);
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+
+    return null;
 }
 
 export default { port: 8000, fetch: app.fetch };

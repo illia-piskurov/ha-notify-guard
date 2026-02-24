@@ -23,6 +23,12 @@
     type Bot = {
         id: number;
         name: string;
+        chatCount: number;
+        activeChatCount: number;
+    };
+
+    type BotChat = {
+        id: number;
         chatId: string;
         isActive: boolean;
     };
@@ -70,8 +76,13 @@
 
     let newBotName = $state("");
     let newBotToken = $state("");
-    let newBotChatId = $state("");
-    let newBotActive = $state(true);
+    let isBotDialogOpen = $state(false);
+    let isBotDialogLoading = $state(false);
+    let botSettingsId = $state<number | null>(null);
+    let botSettingsName = $state("");
+    let botSettingsToken = $state("");
+    let botChats = $state<BotChat[]>([]);
+    let newChatId = $state("");
 
     let isHistoryDialogOpen = $state(false);
     let isHistoryLoading = $state(false);
@@ -228,21 +239,22 @@
     }
 
     async function createBot() {
+        if (!newBotName.trim() || !newBotToken.trim()) {
+            pushToast("Вкажіть назву і токен бота", "error");
+            return;
+        }
+
         try {
             await api<{ success: boolean; id: number }>("/api/bots", {
                 method: "POST",
                 body: JSON.stringify({
                     name: newBotName,
                     token: newBotToken,
-                    chatId: newBotChatId,
-                    isActive: newBotActive,
                 }),
             });
 
             newBotName = "";
             newBotToken = "";
-            newBotChatId = "";
-            newBotActive = true;
 
             pushToast("Бота додано", "success");
             await loadAll();
@@ -251,19 +263,92 @@
         }
     }
 
-    async function toggleBot(bot: Bot, isActive: boolean) {
+    async function openBotSettings(bot: Bot) {
+        isBotDialogOpen = true;
+        isBotDialogLoading = true;
+        botSettingsId = bot.id;
+        botSettingsName = bot.name;
+        botSettingsToken = "";
+        botChats = [];
+        newChatId = "";
+
         try {
-            await api<{ success: boolean }>(`/api/bots/${bot.id}`, {
+            const response = await api<{
+                bot: {
+                    id: number;
+                    name: string;
+                    token: string;
+                };
+                chats: BotChat[];
+            }>(`/api/bots/${bot.id}`);
+
+            botSettingsName = response.bot.name;
+            botSettingsToken = response.bot.token;
+            botChats = response.chats;
+        } catch (error) {
+            pushToast(toError(error), "error");
+            isBotDialogOpen = false;
+        } finally {
+            isBotDialogLoading = false;
+        }
+    }
+
+    async function addBotChat() {
+        if (botSettingsId === null) {
+            return;
+        }
+
+        if (!newChatId.trim()) {
+            pushToast("Вкажіть Chat ID", "error");
+            return;
+        }
+
+        try {
+            const response = await api<{ success: boolean; chat: BotChat }>(
+                `/api/bots/${botSettingsId}/chats`,
+                {
+                    method: "POST",
+                    body: JSON.stringify({
+                        chatId: newChatId,
+                        isActive: true,
+                    }),
+                },
+            );
+
+            botChats = [response.chat, ...botChats];
+            newChatId = "";
+            await loadAll();
+        } catch (error) {
+            pushToast(toError(error), "error");
+        }
+    }
+
+    async function toggleBotChat(chat: BotChat, isActive: boolean) {
+        try {
+            await api<{ success: boolean }>(`/api/bot-chats/${chat.id}`, {
                 method: "PATCH",
                 body: JSON.stringify({ isActive }),
             });
 
-            bots = bots.map((item) =>
-                item.id === bot.id ? { ...item, isActive } : item,
+            botChats = botChats.map((item) =>
+                item.id === chat.id ? { ...item, isActive } : item,
             );
+            await loadAll();
         } catch (error) {
             pushToast(toError(error), "error");
+        }
+    }
+
+    async function deleteBotChat(chatId: number) {
+        try {
+            await api<{ success: boolean }>(`/api/bot-chats/${chatId}`, {
+                method: "DELETE",
+            });
+
+            botChats = botChats.filter((chat) => chat.id !== chatId);
             await loadAll();
+        } catch (error) {
+            pushToast(toError(error), "error");
         }
     }
 
@@ -367,7 +452,8 @@
 
     function toggleDeviceSort(key: DeviceSortKey) {
         if (deviceSortKey === key) {
-            deviceSortDirection = deviceSortDirection === "asc" ? "desc" : "asc";
+            deviceSortDirection =
+                deviceSortDirection === "asc" ? "desc" : "asc";
             return;
         }
 
@@ -407,9 +493,11 @@
         const factor = direction === "asc" ? 1 : -1;
 
         if (key === "name") {
-            return left.name.localeCompare(right.name, undefined, {
-                sensitivity: "base",
-            }) * factor;
+            return (
+                left.name.localeCompare(right.name, undefined, {
+                    sensitivity: "base",
+                }) * factor
+            );
         }
 
         if (key === "ip") {
@@ -417,18 +505,21 @@
         }
 
         if (key === "ping") {
-            return (Number(left.monitorPing) - Number(right.monitorPing)) * factor;
+            return (
+                (Number(left.monitorPing) - Number(right.monitorPing)) * factor
+            );
         }
 
         if (key === "modbus") {
             return (
-                Number(left.monitorModbus) - Number(right.monitorModbus)
-            ) * factor;
+                (Number(left.monitorModbus) - Number(right.monitorModbus)) *
+                factor
+            );
         }
 
         return (
-            left.assignedBotIds.length - right.assignedBotIds.length
-        ) * factor;
+            (left.assignedBotIds.length - right.assignedBotIds.length) * factor
+        );
     }
 
     function compareIp(leftIp: string, rightIp: string): number {
@@ -637,7 +728,9 @@
             </div>
 
             <div class="flex min-h-0 flex-1 flex-col rounded-lg border">
-                <div class="flex flex-wrap items-center justify-between gap-2 p-2 pb-0">
+                <div
+                    class="flex flex-wrap items-center justify-between gap-2 p-2 pb-0"
+                >
                     <input
                         class="bg-background border-input w-full max-w-md rounded-md border px-3 py-2 text-sm"
                         placeholder="Пошук пристрою по імені"
@@ -668,7 +761,10 @@
                                         type="button"
                                     >
                                         Пристрій
-                                        <span class="text-foreground text-sm font-semibold leading-none">{sortIndicator("name")}</span>
+                                        <span
+                                            class="text-foreground text-sm font-semibold leading-none"
+                                            >{sortIndicator("name")}</span
+                                        >
                                     </button>
                                 </Table.Head>
                                 <Table.Head>
@@ -678,7 +774,10 @@
                                         type="button"
                                     >
                                         IP
-                                        <span class="text-foreground text-sm font-semibold leading-none">{sortIndicator("ip")}</span>
+                                        <span
+                                            class="text-foreground text-sm font-semibold leading-none"
+                                            >{sortIndicator("ip")}</span
+                                        >
                                     </button>
                                 </Table.Head>
                                 <Table.Head>
@@ -688,17 +787,24 @@
                                         type="button"
                                     >
                                         Ping
-                                        <span class="text-foreground text-sm font-semibold leading-none">{sortIndicator("ping")}</span>
+                                        <span
+                                            class="text-foreground text-sm font-semibold leading-none"
+                                            >{sortIndicator("ping")}</span
+                                        >
                                     </button>
                                 </Table.Head>
                                 <Table.Head>
                                     <button
                                         class="hover:text-foreground/80 inline-flex items-center gap-1"
-                                        onclick={() => toggleDeviceSort("modbus")}
+                                        onclick={() =>
+                                            toggleDeviceSort("modbus")}
                                         type="button"
                                     >
                                         Modbus
-                                        <span class="text-foreground text-sm font-semibold leading-none">{sortIndicator("modbus")}</span>
+                                        <span
+                                            class="text-foreground text-sm font-semibold leading-none"
+                                            >{sortIndicator("modbus")}</span
+                                        >
                                     </button>
                                 </Table.Head>
                                 <Table.Head>
@@ -708,7 +814,10 @@
                                         type="button"
                                     >
                                         Боти
-                                        <span class="text-foreground text-sm font-semibold leading-none">{sortIndicator("bots")}</span>
+                                        <span
+                                            class="text-foreground text-sm font-semibold leading-none"
+                                            >{sortIndicator("bots")}</span
+                                        >
                                     </button>
                                 </Table.Head>
                                 <Table.Head>Статус</Table.Head>
@@ -751,9 +860,8 @@
                                             checked={device.monitorPing}
                                             onCheckedChange={(checked) =>
                                                 updateDevice(device.id, {
-                                                    monitorPing: Boolean(
-                                                        checked,
-                                                    ),
+                                                    monitorPing:
+                                                        Boolean(checked),
                                                 })}
                                         />
                                     </Table.Cell>
@@ -763,9 +871,8 @@
                                                 checked={device.monitorModbus}
                                                 onCheckedChange={(checked) =>
                                                     updateDevice(device.id, {
-                                                        monitorModbus: Boolean(
-                                                            checked,
-                                                        ),
+                                                        monitorModbus:
+                                                            Boolean(checked),
                                                     })}
                                             />
                                         {:else}
@@ -780,7 +887,8 @@
                                             {#if bots.length === 0}
                                                 <span
                                                     class="text-muted-foreground text-xs"
-                                                    >Додайте бота у вкладці "Боти"</span
+                                                    >Додайте бота у вкладці
+                                                    "Боти"</span
                                                 >
                                             {/if}
                                             {#each bots as bot (bot.id)}
@@ -797,7 +905,9 @@
                                                             toggleAssignedBot(
                                                                 device,
                                                                 bot.id,
-                                                                Boolean(checked),
+                                                                Boolean(
+                                                                    checked,
+                                                                ),
                                                             )}
                                                     />
                                                     <span>{bot.name}</span>
@@ -849,65 +959,48 @@
     {/if}
 
     {#if activeTab === "bots"}
-        <section class="grid gap-4 lg:grid-cols-3">
-            <div class="space-y-3 rounded-lg border p-4">
+        <section class="flex min-h-0 flex-1 flex-col gap-3">
+            <div class="rounded-lg border p-4">
                 <h2 class="text-lg font-medium">Новий Telegram бот</h2>
 
-                <div class="space-y-2">
-                    <label class="text-sm font-medium" for="bot-name"
-                        >Назва</label
-                    >
-                    <input
-                        id="bot-name"
-                        class="bg-background border-input w-full rounded-md border px-3 py-2 text-sm"
-                        bind:value={newBotName}
-                        placeholder="Main Bot"
-                    />
+                <div class="mt-3 grid gap-3 lg:grid-cols-2">
+                    <div class="space-y-2">
+                        <label class="text-sm font-medium" for="bot-name"
+                            >Назва</label
+                        >
+                        <input
+                            id="bot-name"
+                            class="bg-background border-input w-full rounded-md border px-3 py-2 text-sm"
+                            bind:value={newBotName}
+                            placeholder="Main Bot"
+                        />
+                    </div>
+
+                    <div class="space-y-2">
+                        <label class="text-sm font-medium" for="bot-token"
+                            >Token</label
+                        >
+                        <input
+                            id="bot-token"
+                            class="bg-background border-input w-full rounded-md border px-3 py-2 text-sm"
+                            bind:value={newBotToken}
+                            placeholder="123456:ABC..."
+                        />
+                    </div>
                 </div>
 
-                <div class="space-y-2">
-                    <label class="text-sm font-medium" for="bot-token"
-                        >Token</label
-                    >
-                    <input
-                        id="bot-token"
-                        class="bg-background border-input w-full rounded-md border px-3 py-2 text-sm"
-                        bind:value={newBotToken}
-                        placeholder="123456:ABC..."
-                    />
+                <div class="mt-3">
+                    <Button onclick={createBot}>Додати бота</Button>
                 </div>
-
-                <div class="space-y-2">
-                    <label class="text-sm font-medium" for="bot-chat"
-                        >Chat ID</label
-                    >
-                    <input
-                        id="bot-chat"
-                        class="bg-background border-input w-full rounded-md border px-3 py-2 text-sm"
-                        bind:value={newBotChatId}
-                        placeholder="-1001234567890"
-                    />
-                </div>
-
-                <label class="flex items-center gap-2 text-sm">
-                    <Switch
-                        checked={newBotActive}
-                        onCheckedChange={(checked) =>
-                            (newBotActive = Boolean(checked))}
-                    />
-                    Активний
-                </label>
-
-                <Button onclick={createBot}>Додати бота</Button>
             </div>
 
-            <div class="overflow-x-auto rounded-lg border p-2 lg:col-span-2">
+            <div class="overflow-x-auto rounded-lg border p-2">
                 <Table.Root>
                     <Table.Header>
                         <Table.Row>
                             <Table.Head>Назва</Table.Head>
-                            <Table.Head>Chat ID</Table.Head>
-                            <Table.Head>Активний</Table.Head>
+                            <Table.Head>Чатів</Table.Head>
+                            <Table.Head>Активних чатів</Table.Head>
                             <Table.Head>Дія</Table.Head>
                         </Table.Row>
                     </Table.Header>
@@ -925,15 +1018,17 @@
 
                         {#each bots as bot (bot.id)}
                             <Table.Row>
-                                <Table.Cell>{bot.name}</Table.Cell>
-                                <Table.Cell>{bot.chatId}</Table.Cell>
                                 <Table.Cell>
-                                    <Switch
-                                        checked={bot.isActive}
-                                        onCheckedChange={(checked) =>
-                                            toggleBot(bot, Boolean(checked))}
-                                    />
+                                    <button
+                                        class="hover:text-foreground/80 text-left font-medium underline-offset-2 hover:underline"
+                                        onclick={() => openBotSettings(bot)}
+                                        type="button"
+                                    >
+                                        {bot.name}
+                                    </button>
                                 </Table.Cell>
+                                <Table.Cell>{bot.chatCount}</Table.Cell>
+                                <Table.Cell>{bot.activeChatCount}</Table.Cell>
                                 <Table.Cell>
                                     <Button
                                         variant="destructive"
@@ -949,6 +1044,87 @@
             </div>
         </section>
     {/if}
+
+    <Dialog.Root bind:open={isBotDialogOpen}>
+        <Dialog.Content class="sm:max-w-2xl">
+            <Dialog.Header>
+                <Dialog.Title>Налаштування бота</Dialog.Title>
+                <Dialog.Description>
+                    {botSettingsName}
+                </Dialog.Description>
+            </Dialog.Header>
+
+            {#if isBotDialogLoading}
+                <div class="text-muted-foreground py-3 text-sm">
+                    Завантаження...
+                </div>
+            {:else}
+                <div class="grid gap-3">
+                    <div class="grid gap-3 sm:grid-cols-[1fr_auto]">
+                        <input
+                            class="bg-background border-input w-full rounded-md border px-3 py-2 text-sm"
+                            placeholder="Chat ID"
+                            bind:value={newChatId}
+                        />
+                        <Button onclick={addBotChat}>Додати чат</Button>
+                    </div>
+
+                    {#if botChats.length === 0}
+                        <div class="text-muted-foreground text-sm">
+                            Для цього бота ще немає чатів. Додайте перший Chat
+                            ID.
+                        </div>
+                    {:else}
+                        <div
+                            class="max-h-[45vh] overflow-auto rounded-md border"
+                        >
+                            <Table.Root>
+                                <Table.Header>
+                                    <Table.Row>
+                                        <Table.Head>Chat ID</Table.Head>
+                                        <Table.Head>Розсилка активна</Table.Head
+                                        >
+                                        <Table.Head>Дія</Table.Head>
+                                    </Table.Row>
+                                </Table.Header>
+                                <Table.Body>
+                                    {#each botChats as chat (chat.id)}
+                                        <Table.Row>
+                                            <Table.Cell
+                                                >{chat.chatId}</Table.Cell
+                                            >
+                                            <Table.Cell>
+                                                <Switch
+                                                    checked={chat.isActive}
+                                                    onCheckedChange={(
+                                                        checked,
+                                                    ) =>
+                                                        toggleBotChat(
+                                                            chat,
+                                                            Boolean(checked),
+                                                        )}
+                                                />
+                                            </Table.Cell>
+                                            <Table.Cell>
+                                                <Button
+                                                    variant="destructive"
+                                                    size="sm"
+                                                    onclick={() =>
+                                                        deleteBotChat(chat.id)}
+                                                >
+                                                    Видалити
+                                                </Button>
+                                            </Table.Cell>
+                                        </Table.Row>
+                                    {/each}
+                                </Table.Body>
+                            </Table.Root>
+                        </div>
+                    {/if}
+                </div>
+            {/if}
+        </Dialog.Content>
+    </Dialog.Root>
 
     <Dialog.Root bind:open={isHistoryDialogOpen}>
         <Dialog.Content class="sm:max-w-2xl">
@@ -1000,7 +1176,8 @@
                 </div>
             {:else if historySlices.length === 0}
                 <div class="text-muted-foreground py-4 text-sm">
-                    Історії пінгу ще немає. Увімкніть моніторинг Ping для цього пристрою і зачекайте кілька циклів перевірки.
+                    Історії пінгу ще немає. Увімкніть моніторинг Ping для цього
+                    пристрою і зачекайте кілька циклів перевірки.
                     {#if !historyMonitorPing}
                         <div class="mt-2">Зараз моніторинг Ping вимкнений.</div>
                     {/if}
@@ -1053,7 +1230,9 @@
         </Dialog.Content>
     </Dialog.Root>
 
-    <div class="pointer-events-none fixed right-4 bottom-4 z-50 flex w-full max-w-sm flex-col gap-2">
+    <div
+        class="pointer-events-none fixed right-4 bottom-4 z-50 flex w-full max-w-sm flex-col gap-2"
+    >
         {#each toasts as toast (toast.id)}
             <div
                 class={`pointer-events-auto flex items-start justify-between gap-2 rounded-md border px-3 py-2 text-sm shadow ${
