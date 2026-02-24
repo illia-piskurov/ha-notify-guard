@@ -60,25 +60,30 @@
         statusLabel: (kind: "ping" | "modbus", status: string) => string | null;
     } = $props();
 
-    async function applyBulkAction(
-        action: "pingOn" | "pingOff" | "modbusOn" | "modbusOff",
-    ) {
-        const updates = sortedDevices.map((device) => {
-            if (action === "pingOn") {
-                return updateDevice(device.id, { monitorPing: true });
-            }
-            if (action === "pingOff") {
-                return updateDevice(device.id, { monitorPing: false });
-            }
-            if (action === "modbusOn" && device.hasModbusTag) {
-                return updateDevice(device.id, { monitorModbus: true });
-            }
-            if (action === "modbusOff" && device.hasModbusTag) {
-                return updateDevice(device.id, { monitorModbus: false });
-            }
-            return Promise.resolve();
-        });
+    let allPingChecked = $derived(
+        sortedDevices.length > 0 && sortedDevices.every((d) => d.monitorPing),
+    );
 
+    let allModbusChecked = $derived(
+        sortedDevices.filter((d) => d.hasModbusTag).length > 0 &&
+            sortedDevices
+                .filter((d) => d.hasModbusTag)
+                .every((d) => d.monitorModbus),
+    );
+
+    async function toggleAllPing(checked: boolean) {
+        const updates = sortedDevices.map((device) =>
+            updateDevice(device.id, { monitorPing: checked }),
+        );
+        await Promise.all(updates);
+    }
+
+    async function toggleAllModbus(checked: boolean) {
+        const updates = sortedDevices
+            .filter((d) => d.hasModbusTag)
+            .map((device) =>
+                updateDevice(device.id, { monitorModbus: checked }),
+            );
         await Promise.all(updates);
     }
 </script>
@@ -162,44 +167,6 @@
             </div>
         </div>
 
-        {#if sortedDevices.length > 0}
-            <div class="flex flex-wrap items-center gap-2 border-t p-2">
-                <span class="text-muted-foreground text-xs font-medium">
-                    {$_("devices.bulkActions.title")}:
-                </span>
-                <div class="flex flex-wrap gap-1">
-                    <Button
-                        size="sm"
-                        variant="outline"
-                        onclick={() => applyBulkAction("pingOn")}
-                    >
-                        {$_("devices.bulkActions.pingOn")}
-                    </Button>
-                    <Button
-                        size="sm"
-                        variant="outline"
-                        onclick={() => applyBulkAction("pingOff")}
-                    >
-                        {$_("devices.bulkActions.pingOff")}
-                    </Button>
-                    <Button
-                        size="sm"
-                        variant="outline"
-                        onclick={() => applyBulkAction("modbusOn")}
-                    >
-                        {$_("devices.bulkActions.modbusOn")}
-                    </Button>
-                    <Button
-                        size="sm"
-                        variant="outline"
-                        onclick={() => applyBulkAction("modbusOff")}
-                    >
-                        {$_("devices.bulkActions.modbusOff")}
-                    </Button>
-                </div>
-            </div>
-        {/if}
-
         <div class="min-h-0 flex-1 overflow-auto p-2">
             <Table.Root>
                 <Table.Header>
@@ -233,32 +200,6 @@
                         <Table.Head>
                             <button
                                 class="hover:text-foreground/80 inline-flex items-center gap-1"
-                                onclick={() => toggleDeviceSort("ping")}
-                                type="button"
-                            >
-                                Ping
-                                <span
-                                    class="text-foreground text-sm font-semibold leading-none"
-                                    >{sortIndicator("ping")}</span
-                                >
-                            </button>
-                        </Table.Head>
-                        <Table.Head>
-                            <button
-                                class="hover:text-foreground/80 inline-flex items-center gap-1"
-                                onclick={() => toggleDeviceSort("modbus")}
-                                type="button"
-                            >
-                                Modbus
-                                <span
-                                    class="text-foreground text-sm font-semibold leading-none"
-                                    >{sortIndicator("modbus")}</span
-                                >
-                            </button>
-                        </Table.Head>
-                        <Table.Head>
-                            <button
-                                class="hover:text-foreground/80 inline-flex items-center gap-1"
                                 onclick={() => toggleDeviceSort("bots")}
                                 type="button"
                             >
@@ -269,27 +210,64 @@
                                 >
                             </button>
                         </Table.Head>
-                        <Table.Head>{$_("devices.table.status")}</Table.Head>
+                        <Table.Head>
+                            <div class="flex items-center gap-2">
+                                <button
+                                    class="hover:text-foreground/80 inline-flex items-center gap-1"
+                                    onclick={() => toggleDeviceSort("ping")}
+                                    type="button"
+                                >
+                                    Ping
+                                    <span
+                                        class="text-foreground text-sm font-semibold leading-none"
+                                        >{sortIndicator("ping")}</span
+                                    >
+                                </button>
+                                {#if sortedDevices.length > 0}
+                                    <Switch
+                                        checked={allPingChecked}
+                                        onCheckedChange={(checked) =>
+                                            toggleAllPing(Boolean(checked))}
+                                    />
+                                {/if}
+                            </div>
+                        </Table.Head>
+                        <Table.Head>
+                            <div class="flex items-center gap-2">
+                                <button
+                                    class="hover:text-foreground/80 inline-flex items-center gap-1"
+                                    onclick={() => toggleDeviceSort("modbus")}
+                                    type="button"
+                                >
+                                    Modbus
+                                    <span
+                                        class="text-foreground text-sm font-semibold leading-none"
+                                        >{sortIndicator("modbus")}</span
+                                    >
+                                </button>
+                                {#if sortedDevices.filter((d) => d.hasModbusTag).length > 0}
+                                    <Switch
+                                        checked={allModbusChecked}
+                                        onCheckedChange={(checked) =>
+                                            toggleAllModbus(Boolean(checked))}
+                                    />
+                                {/if}
+                            </div>
+                        </Table.Head>
                     </Table.Row>
                 </Table.Header>
                 <Table.Body>
-                    {#if sortedDevices.length === 0}
-                        <Table.Row>
-                            <Table.Cell
-                                colspan={6}
-                                class="text-muted-foreground py-5 text-center"
-                            >
-                                {$_("devices.table.noResults")}
-                            </Table.Cell>
-                        </Table.Row>
-                    {/if}
-
                     {#each sortedDevices as device (device.id)}
                         <Table.Row>
                             <Table.Cell>
-                                <div class="flex items-center gap-2">
+                                <div
+                                    class="flex max-w-fit cursor-pointer items-center gap-1"
+                                    onclick={() => openDeviceHistory(device)}
+                                    role="button"
+                                    tabindex="0"
+                                >
                                     <button
-                                        class="hover:text-foreground/80 text-left font-medium underline-offset-2 hover:underline"
+                                        class="text-primary hover:underline"
                                         onclick={() =>
                                             openDeviceHistory(device)}
                                         type="button"
