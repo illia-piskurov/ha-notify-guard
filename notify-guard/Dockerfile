@@ -9,11 +9,10 @@ FROM oven/bun:1.1-alpine
 RUN apk add --no-cache bash curl jq sqlite
 
 WORKDIR /app
+RUN apk add --no-cache sqlite
 
 COPY package.json bun.lock* ./
-RUN apk add --no-cache --virtual .build-deps python3 make g++ linux-headers sqlite-dev pkgconf && \
-    bun install && \
-    apk del .build-deps
+RUN bun install
 
 COPY src ./src
 COPY tsconfig.json ./
