@@ -67,6 +67,12 @@
 
     let isLoading = $state(false);
     let isSyncing = $state(false);
+    let isLoadInFlight = false;
+
+    const AUTO_REFRESH_STORAGE_KEY = "notify-guard-auto-refresh-seconds";
+    const AUTO_REFRESH_OPTIONS = [5, 10, 30, 60] as const;
+    let autoRefreshSeconds = $state<number>(10);
+    let autoRefreshTimer: ReturnType<typeof setInterval> | null = null;
 
     let newBotName = $state("");
     let newBotToken = $state("");
@@ -88,10 +94,21 @@
         ),
     );
 
-    onMount(async () => {
+    onMount(() => {
         initializeAppLocale(get(locale));
         initializeTheme();
-        await loadAll();
+
+        autoRefreshSeconds = readStoredAutoRefreshSeconds();
+        void loadAll();
+
+        restartAutoRefreshTimer();
+
+        return () => {
+            if (autoRefreshTimer) {
+                clearInterval(autoRefreshTimer);
+                autoRefreshTimer = null;
+            }
+        };
     });
 
     function t(
@@ -104,8 +121,22 @@
         return values ? get(_)(key, { values }) : get(_)(key);
     }
 
-    async function loadAll() {
-        isLoading = true;
+    async function loadAll(options?: {
+        showLoader?: boolean;
+        notifyOnError?: boolean;
+    }) {
+        if (isLoadInFlight) {
+            return;
+        }
+
+        isLoadInFlight = true;
+
+        const showLoader = options?.showLoader ?? true;
+        const notifyOnError = options?.notifyOnError ?? true;
+
+        if (showLoader) {
+            isLoading = true;
+        }
 
         try {
             const payload = await fetchAppData();
@@ -115,9 +146,15 @@
             logs = payload.logs;
             appLogs = payload.appLogs;
         } catch (error) {
-            pushToast(toError(error), "error");
+            if (notifyOnError) {
+                pushToast(toError(error), "error");
+            }
         } finally {
-            isLoading = false;
+            if (showLoader) {
+                isLoading = false;
+            }
+
+            isLoadInFlight = false;
         }
     }
 
@@ -220,6 +257,59 @@
         selectedDeviceForHistory = device;
         isHistoryDialogOpen = true;
     }
+
+    function readStoredAutoRefreshSeconds(): number {
+        if (typeof window === "undefined") {
+            return 10;
+        }
+
+        const raw = window.localStorage.getItem(AUTO_REFRESH_STORAGE_KEY);
+        const parsed = Number(raw);
+
+        if (
+            AUTO_REFRESH_OPTIONS.includes(
+                parsed as (typeof AUTO_REFRESH_OPTIONS)[number],
+            )
+        ) {
+            return parsed;
+        }
+
+        return 10;
+    }
+
+    function restartAutoRefreshTimer() {
+        if (autoRefreshTimer) {
+            clearInterval(autoRefreshTimer);
+            autoRefreshTimer = null;
+        }
+
+        autoRefreshTimer = setInterval(() => {
+            void loadAll({
+                showLoader: false,
+                notifyOnError: false,
+            });
+        }, autoRefreshSeconds * 1000);
+    }
+
+    function setAutoRefreshSeconds(value: number) {
+        if (
+            !AUTO_REFRESH_OPTIONS.includes(
+                value as (typeof AUTO_REFRESH_OPTIONS)[number],
+            )
+        ) {
+            return;
+        }
+
+        autoRefreshSeconds = value;
+        restartAutoRefreshTimer();
+
+        if (typeof window !== "undefined") {
+            window.localStorage.setItem(
+                AUTO_REFRESH_STORAGE_KEY,
+                String(value),
+            );
+        }
+    }
 </script>
 
 <main class="flex min-h-screen w-full flex-col gap-3 p-3 md:p-4">
@@ -312,11 +402,29 @@
                 <h2 class="text-muted-foreground text-sm font-medium">
                     {$_("app.tabs.devices")}
                 </h2>
-                <Button
-                    variant="secondary"
-                    onclick={loadAll}
-                    disabled={isLoading}>{$_("app.refresh")}</Button
-                >
+                <div class="flex items-center gap-2">
+                    <span class="text-muted-foreground text-xs"
+                        >{$_("app.autoRefresh")}</span
+                    >
+                    <div class="flex items-center gap-1">
+                        {#each AUTO_REFRESH_OPTIONS as option}
+                            <Button
+                                size="sm"
+                                variant={autoRefreshSeconds === option
+                                    ? "default"
+                                    : "outline"}
+                                onclick={() => setAutoRefreshSeconds(option)}
+                            >
+                                {option}s
+                            </Button>
+                        {/each}
+                    </div>
+                    <Button
+                        variant="secondary"
+                        onclick={loadAll}
+                        disabled={isLoading}>{$_("app.refresh")}</Button
+                    >
+                </div>
             </div>
 
             <DevicesFeature
@@ -348,11 +456,29 @@
                 <h2 class="text-muted-foreground text-sm font-medium">
                     {$_("app.tabs.bots")}
                 </h2>
-                <Button
-                    variant="secondary"
-                    onclick={loadAll}
-                    disabled={isLoading}>{$_("app.refresh")}</Button
-                >
+                <div class="flex items-center gap-2">
+                    <span class="text-muted-foreground text-xs"
+                        >{$_("app.autoRefresh")}</span
+                    >
+                    <div class="flex items-center gap-1">
+                        {#each AUTO_REFRESH_OPTIONS as option}
+                            <Button
+                                size="sm"
+                                variant={autoRefreshSeconds === option
+                                    ? "default"
+                                    : "outline"}
+                                onclick={() => setAutoRefreshSeconds(option)}
+                            >
+                                {option}s
+                            </Button>
+                        {/each}
+                    </div>
+                    <Button
+                        variant="secondary"
+                        onclick={loadAll}
+                        disabled={isLoading}>{$_("app.refresh")}</Button
+                    >
+                </div>
             </div>
 
             <BotsFeature
@@ -374,11 +500,29 @@
                 <h2 class="text-muted-foreground text-sm font-medium">
                     {$_("app.tabs.logs")}
                 </h2>
-                <Button
-                    variant="secondary"
-                    onclick={loadAll}
-                    disabled={isLoading}>{$_("app.refresh")}</Button
-                >
+                <div class="flex items-center gap-2">
+                    <span class="text-muted-foreground text-xs"
+                        >{$_("app.autoRefresh")}</span
+                    >
+                    <div class="flex items-center gap-1">
+                        {#each AUTO_REFRESH_OPTIONS as option}
+                            <Button
+                                size="sm"
+                                variant={autoRefreshSeconds === option
+                                    ? "default"
+                                    : "outline"}
+                                onclick={() => setAutoRefreshSeconds(option)}
+                            >
+                                {option}s
+                            </Button>
+                        {/each}
+                    </div>
+                    <Button
+                        variant="secondary"
+                        onclick={loadAll}
+                        disabled={isLoading}>{$_("app.refresh")}</Button
+                    >
+                </div>
             </div>
 
             <LogsFeature {logs} {appLogs} />
@@ -391,11 +535,29 @@
                 <h2 class="text-muted-foreground text-sm font-medium">
                     {$_("app.tabs.rest")}
                 </h2>
-                <Button
-                    variant="secondary"
-                    onclick={loadAll}
-                    disabled={isLoading}>{$_("app.refresh")}</Button
-                >
+                <div class="flex items-center gap-2">
+                    <span class="text-muted-foreground text-xs"
+                        >{$_("app.autoRefresh")}</span
+                    >
+                    <div class="flex items-center gap-1">
+                        {#each AUTO_REFRESH_OPTIONS as option}
+                            <Button
+                                size="sm"
+                                variant={autoRefreshSeconds === option
+                                    ? "default"
+                                    : "outline"}
+                                onclick={() => setAutoRefreshSeconds(option)}
+                            >
+                                {option}s
+                            </Button>
+                        {/each}
+                    </div>
+                    <Button
+                        variant="secondary"
+                        onclick={loadAll}
+                        disabled={isLoading}>{$_("app.refresh")}</Button
+                    >
+                </div>
             </div>
 
             <RestInboundFeature {logs} />
