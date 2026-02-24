@@ -1,11 +1,14 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import { get } from "svelte/store";
+    import { _, locale } from "svelte-i18n";
     import { Button } from "$lib/components/ui/button/index.js";
     import { Badge } from "$lib/components/ui/badge/index.js";
     import { Switch } from "$lib/components/ui/switch/index.js";
     import { Checkbox } from "$lib/components/ui/checkbox/index.js";
     import * as Dialog from "$lib/components/ui/dialog/index.js";
     import * as Table from "$lib/components/ui/table/index.js";
+    import { normalizeLocale, setAppLocale, type AppLocale } from "$lib/i18n";
 
     type Device = {
         id: number;
@@ -68,6 +71,7 @@
     let isLoading = $state(false);
     let isSyncing = $state(false);
     let isDarkTheme = $state(false);
+    let appLocale = $state<AppLocale>("en");
     let toasts = $state<Toast[]>([]);
     let deviceSearchQuery = $state("");
     let onlyModbus = $state(false);
@@ -116,9 +120,19 @@
     );
 
     onMount(async () => {
+        appLocale = normalizeLocale(get(locale));
         initializeTheme();
         await loadAll();
     });
+
+    function t(key: string, values?: Record<string, unknown>) {
+        return get(_)(key, values);
+    }
+
+    function setLanguage(nextLocale: AppLocale) {
+        appLocale = nextLocale;
+        setAppLocale(nextLocale);
+    }
 
     function initializeTheme() {
         if (typeof window === "undefined") {
@@ -184,7 +198,7 @@
             });
 
             settings = response.settings;
-            pushToast("Налаштування NetBox збережено", "success");
+            pushToast(t("netbox.saved"), "success");
         } catch (error) {
             pushToast(toError(error), "error");
         }
@@ -203,7 +217,10 @@
             });
 
             pushToast(
-                `Синхронізація завершена: ${response.synced}/${response.total}`,
+                t("netbox.synced", {
+                    synced: response.synced,
+                    total: response.total,
+                }),
                 "success",
             );
             await loadAll();
@@ -240,7 +257,7 @@
 
     async function createBot() {
         if (!newBotName.trim() || !newBotToken.trim()) {
-            pushToast("Вкажіть назву і токен бота", "error");
+            pushToast(t("bots.validation.nameTokenRequired"), "error");
             return;
         }
 
@@ -256,7 +273,7 @@
             newBotName = "";
             newBotToken = "";
 
-            pushToast("Бота додано", "success");
+            pushToast(t("bots.created"), "success");
             await loadAll();
         } catch (error) {
             pushToast(toError(error), "error");
@@ -299,7 +316,7 @@
         }
 
         if (!newChatId.trim()) {
-            pushToast("Вкажіть Chat ID", "error");
+            pushToast(t("bots.validation.chatIdRequired"), "error");
             return;
         }
 
@@ -358,7 +375,7 @@
                 method: "DELETE",
             });
 
-            pushToast("Бота видалено", "success");
+            pushToast(t("bots.deleted"), "success");
             await loadAll();
         } catch (error) {
             pushToast(toError(error), "error");
@@ -606,18 +623,18 @@
             return value;
         }
 
-        return date.toLocaleString();
+        return date.toLocaleString(appLocale === "uk" ? "uk-UA" : "en-US");
     }
 
     function formatDuration(startedAt: string, endedAt: string | null): string {
         if (!endedAt) {
-            return "триває";
+            return t("history.duration.ongoing");
         }
 
         const start = new Date(startedAt).getTime();
         const end = new Date(endedAt).getTime();
         if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
-            return "—";
+            return t("history.duration.invalid");
         }
 
         const totalMinutes = Math.floor((end - start) / 60000);
@@ -626,14 +643,14 @@
         const minutes = totalMinutes % 60;
 
         if (days > 0) {
-            return `${days}д ${hours}г ${minutes}хв`;
+            return t("history.duration.dhm", { days, hours, minutes });
         }
 
         if (hours > 0) {
-            return `${hours}г ${minutes}хв`;
+            return t("history.duration.hm", { hours, minutes });
         }
 
-        return `${minutes}хв`;
+        return t("history.duration.m", { minutes });
     }
 </script>
 
@@ -642,11 +659,30 @@
         <div>
             <h1 class="text-2xl font-semibold">Notify Guard</h1>
             <p class="text-muted-foreground text-sm">
-                Моніторинг пристроїв з NetBox + Telegram сповіщення
+                {$_("app.subtitle")}
             </p>
         </div>
 
         <div class="flex items-center gap-2">
+            <div class="mr-1 flex items-center gap-1">
+                <span class="text-muted-foreground text-xs"
+                    >{$_("app.language")}</span
+                >
+                <Button
+                    variant={appLocale === "en" ? "default" : "outline"}
+                    size="sm"
+                    onclick={() => setLanguage("en")}
+                >
+                    🇬🇧 EN
+                </Button>
+                <Button
+                    variant={appLocale === "uk" ? "default" : "outline"}
+                    size="sm"
+                    onclick={() => setLanguage("uk")}
+                >
+                    🇺🇦 UA
+                </Button>
+            </div>
             <div class="mr-1 flex items-center gap-2">
                 <span class="text-muted-foreground text-xs">🌙</span>
                 <Switch
@@ -658,16 +694,16 @@
                 variant={activeTab === "devices" ? "default" : "outline"}
                 onclick={() => (activeTab = "devices")}
             >
-                Пристрої
+                {$_("app.tabs.devices")}
             </Button>
             <Button
                 variant={activeTab === "bots" ? "default" : "outline"}
                 onclick={() => (activeTab = "bots")}
             >
-                Боти
+                {$_("app.tabs.bots")}
             </Button>
             <Button variant="secondary" onclick={loadAll} disabled={isLoading}
-                >Оновити</Button
+                >{$_("app.refresh")}</Button
             >
         </div>
     </section>
@@ -675,11 +711,11 @@
     {#if activeTab === "devices"}
         <section class="flex min-h-0 flex-1 flex-col gap-3">
             <div class="rounded-lg border p-4">
-                <h2 class="text-lg font-medium">NetBox</h2>
+                <h2 class="text-lg font-medium">{$_("netbox.title")}</h2>
                 <div class="mt-3 grid gap-3 lg:grid-cols-3">
                     <div class="space-y-2">
                         <label class="text-sm font-medium" for="netbox-url"
-                            >URL API</label
+                            >{$_("netbox.apiUrl")}</label
                         >
                         <input
                             id="netbox-url"
@@ -691,7 +727,7 @@
 
                     <div class="space-y-2">
                         <label class="text-sm font-medium" for="netbox-token"
-                            >Token</label
+                            >{$_("netbox.token")}</label
                         >
                         <input
                             id="netbox-token"
@@ -703,7 +739,7 @@
 
                     <div class="space-y-2">
                         <label class="text-sm font-medium" for="poll-seconds"
-                            >Інтервал моніторингу, сек</label
+                            >{$_("netbox.interval")}</label
                         >
                         <input
                             id="poll-seconds"
@@ -716,13 +752,15 @@
                 </div>
 
                 <div class="mt-3 flex flex-wrap gap-2">
-                    <Button onclick={saveNetboxSettings}>Зберегти</Button>
+                    <Button onclick={saveNetboxSettings}
+                        >{$_("netbox.save")}</Button
+                    >
                     <Button
                         variant="secondary"
                         onclick={syncNetbox}
                         disabled={isSyncing}
                     >
-                        {isSyncing ? "Синхронізація..." : "Синхронізувати"}
+                        {isSyncing ? $_("netbox.syncing") : $_("netbox.sync")}
                     </Button>
                 </div>
             </div>
@@ -733,7 +771,7 @@
                 >
                     <input
                         class="bg-background border-input w-full max-w-md rounded-md border px-3 py-2 text-sm"
-                        placeholder="Пошук пристрою по імені"
+                        placeholder={$_("devices.searchPlaceholder")}
                         bind:value={deviceSearchQuery}
                     />
 
@@ -742,10 +780,10 @@
                             variant={onlyModbus ? "default" : "outline"}
                             onclick={() => (onlyModbus = !onlyModbus)}
                         >
-                            Тільки modbus
+                            {$_("devices.onlyModbus")}
                         </Button>
                         <Button variant="outline" onclick={resetDeviceFilters}>
-                            Скинути фільтри
+                            {$_("devices.resetFilters")}
                         </Button>
                     </div>
                 </div>
@@ -760,7 +798,7 @@
                                         onclick={() => toggleDeviceSort("name")}
                                         type="button"
                                     >
-                                        Пристрій
+                                        {$_("devices.table.device")}
                                         <span
                                             class="text-foreground text-sm font-semibold leading-none"
                                             >{sortIndicator("name")}</span
@@ -813,14 +851,16 @@
                                         onclick={() => toggleDeviceSort("bots")}
                                         type="button"
                                     >
-                                        Боти
+                                        {$_("devices.table.bots")}
                                         <span
                                             class="text-foreground text-sm font-semibold leading-none"
                                             >{sortIndicator("bots")}</span
                                         >
                                     </button>
                                 </Table.Head>
-                                <Table.Head>Статус</Table.Head>
+                                <Table.Head
+                                    >{$_("devices.table.status")}</Table.Head
+                                >
                             </Table.Row>
                         </Table.Header>
                         <Table.Body>
@@ -830,7 +870,7 @@
                                         colspan={6}
                                         class="text-muted-foreground py-5 text-center"
                                     >
-                                        Нічого не знайдено за поточним фільтром.
+                                        {$_("devices.table.noResults")}
                                     </Table.Cell>
                                 </Table.Row>
                             {/if}
@@ -887,8 +927,9 @@
                                             {#if bots.length === 0}
                                                 <span
                                                     class="text-muted-foreground text-xs"
-                                                    >Додайте бота у вкладці
-                                                    "Боти"</span
+                                                    >{$_(
+                                                        "devices.table.addBotHint",
+                                                    )}</span
                                                 >
                                             {/if}
                                             {#each bots as bot (bot.id)}
@@ -961,12 +1002,12 @@
     {#if activeTab === "bots"}
         <section class="flex min-h-0 flex-1 flex-col gap-3">
             <div class="rounded-lg border p-4">
-                <h2 class="text-lg font-medium">Новий Telegram бот</h2>
+                <h2 class="text-lg font-medium">{$_("bots.title")}</h2>
 
                 <div class="mt-3 grid gap-3 lg:grid-cols-2">
                     <div class="space-y-2">
                         <label class="text-sm font-medium" for="bot-name"
-                            >Назва</label
+                            >{$_("bots.name")}</label
                         >
                         <input
                             id="bot-name"
@@ -978,7 +1019,7 @@
 
                     <div class="space-y-2">
                         <label class="text-sm font-medium" for="bot-token"
-                            >Token</label
+                            >{$_("bots.token")}</label
                         >
                         <input
                             id="bot-token"
@@ -990,7 +1031,7 @@
                 </div>
 
                 <div class="mt-3">
-                    <Button onclick={createBot}>Додати бота</Button>
+                    <Button onclick={createBot}>{$_("bots.add")}</Button>
                 </div>
             </div>
 
@@ -998,10 +1039,12 @@
                 <Table.Root>
                     <Table.Header>
                         <Table.Row>
-                            <Table.Head>Назва</Table.Head>
-                            <Table.Head>Чатів</Table.Head>
-                            <Table.Head>Активних чатів</Table.Head>
-                            <Table.Head>Дія</Table.Head>
+                            <Table.Head>{$_("bots.table.name")}</Table.Head>
+                            <Table.Head>{$_("bots.table.chats")}</Table.Head>
+                            <Table.Head
+                                >{$_("bots.table.activeChats")}</Table.Head
+                            >
+                            <Table.Head>{$_("bots.table.action")}</Table.Head>
                         </Table.Row>
                     </Table.Header>
                     <Table.Body>
@@ -1011,7 +1054,7 @@
                                     colspan={4}
                                     class="text-muted-foreground py-5 text-center"
                                 >
-                                    Ще немає жодного бота.
+                                    {$_("bots.table.empty")}
                                 </Table.Cell>
                             </Table.Row>
                         {/if}
@@ -1034,7 +1077,7 @@
                                         variant="destructive"
                                         size="sm"
                                         onclick={() => deleteBot(bot.id)}
-                                        >Видалити</Button
+                                        >{$_("bots.delete")}</Button
                                     >
                                 </Table.Cell>
                             </Table.Row>
@@ -1048,7 +1091,7 @@
     <Dialog.Root bind:open={isBotDialogOpen}>
         <Dialog.Content class="sm:max-w-2xl">
             <Dialog.Header>
-                <Dialog.Title>Налаштування бота</Dialog.Title>
+                <Dialog.Title>{$_("bots.settingsTitle")}</Dialog.Title>
                 <Dialog.Description>
                     {botSettingsName}
                 </Dialog.Description>
@@ -1056,23 +1099,24 @@
 
             {#if isBotDialogLoading}
                 <div class="text-muted-foreground py-3 text-sm">
-                    Завантаження...
+                    {$_("bots.loading")}
                 </div>
             {:else}
                 <div class="grid gap-3">
                     <div class="grid gap-3 sm:grid-cols-[1fr_auto]">
                         <input
                             class="bg-background border-input w-full rounded-md border px-3 py-2 text-sm"
-                            placeholder="Chat ID"
+                            placeholder={$_("bots.chatIdPlaceholder")}
                             bind:value={newChatId}
                         />
-                        <Button onclick={addBotChat}>Додати чат</Button>
+                        <Button onclick={addBotChat}
+                            >{$_("bots.addChat")}</Button
+                        >
                     </div>
 
                     {#if botChats.length === 0}
                         <div class="text-muted-foreground text-sm">
-                            Для цього бота ще немає чатів. Додайте перший Chat
-                            ID.
+                            {$_("bots.noChats")}
                         </div>
                     {:else}
                         <div
@@ -1082,9 +1126,16 @@
                                 <Table.Header>
                                     <Table.Row>
                                         <Table.Head>Chat ID</Table.Head>
-                                        <Table.Head>Розсилка активна</Table.Head
+                                        <Table.Head
+                                            >{$_(
+                                                "bots.mailingActive",
+                                            )}</Table.Head
                                         >
-                                        <Table.Head>Дія</Table.Head>
+                                        <Table.Head
+                                            >{$_(
+                                                "bots.table.action",
+                                            )}</Table.Head
+                                        >
                                     </Table.Row>
                                 </Table.Header>
                                 <Table.Body>
@@ -1112,7 +1163,7 @@
                                                     onclick={() =>
                                                         deleteBotChat(chat.id)}
                                                 >
-                                                    Видалити
+                                                    {$_("bots.delete")}
                                                 </Button>
                                             </Table.Cell>
                                         </Table.Row>
@@ -1129,7 +1180,7 @@
     <Dialog.Root bind:open={isHistoryDialogOpen}>
         <Dialog.Content class="sm:max-w-2xl">
             <Dialog.Header>
-                <Dialog.Title>Історія доступності</Dialog.Title>
+                <Dialog.Title>{$_("history.title")}</Dialog.Title>
                 <Dialog.Description>
                     {historyDeviceName} ({historyDeviceIp})
                 </Dialog.Description>
@@ -1162,24 +1213,23 @@
                     size="sm"
                     onclick={() => changeHistoryPeriod("all")}
                 >
-                    all
+                    {$_("history.periodAll")}
                 </Button>
             </div>
 
             {#if isHistoryLoading}
                 <div class="text-muted-foreground py-4 text-sm">
-                    Завантаження історії...
+                    {$_("history.loading")}
                 </div>
             {:else if historyDeviceExists === false}
                 <div class="text-muted-foreground py-4 text-sm">
-                    Пристрою вже немає у базі. Історія недоступна.
+                    {$_("history.deviceMissing")}
                 </div>
             {:else if historySlices.length === 0}
                 <div class="text-muted-foreground py-4 text-sm">
-                    Історії пінгу ще немає. Увімкніть моніторинг Ping для цього
-                    пристрою і зачекайте кілька циклів перевірки.
+                    {$_("history.empty")}
                     {#if !historyMonitorPing}
-                        <div class="mt-2">Зараз моніторинг Ping вимкнений.</div>
+                        <div class="mt-2">{$_("history.pingDisabledNow")}</div>
                     {/if}
                 </div>
             {:else}
@@ -1187,10 +1237,17 @@
                     <Table.Root>
                         <Table.Header>
                             <Table.Row>
-                                <Table.Head>З</Table.Head>
-                                <Table.Head>По</Table.Head>
-                                <Table.Head>Статус</Table.Head>
-                                <Table.Head>Тривалість</Table.Head>
+                                <Table.Head
+                                    >{$_("history.table.from")}</Table.Head
+                                >
+                                <Table.Head>{$_("history.table.to")}</Table.Head
+                                >
+                                <Table.Head
+                                    >{$_("history.table.status")}</Table.Head
+                                >
+                                <Table.Head
+                                    >{$_("history.table.duration")}</Table.Head
+                                >
                             </Table.Row>
                         </Table.Header>
                         <Table.Body>
@@ -1203,7 +1260,7 @@
                                         {#if slice.endedAt}
                                             {formatHistoryTime(slice.endedAt)}
                                         {:else}
-                                            зараз
+                                            {$_("history.now")}
                                         {/if}
                                     </Table.Cell>
                                     <Table.Cell>
