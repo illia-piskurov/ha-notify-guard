@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { serveStatic } from 'hono/bun';
+import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono } from 'hono';
 import { buildErrorDetails, writeAppLog } from './lib/app-logger';
 import { registerApiRoutes } from './routes';
