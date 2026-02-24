@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { existsSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 

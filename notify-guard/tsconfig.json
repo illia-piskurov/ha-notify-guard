@@ -9,9 +9,8 @@
     "moduleDetection": "force",
     "jsx": "react-jsx",
     "allowJs": true,
-    // Bundler mode
-    "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
+    // Node.js module resolution
+    "moduleResolution": "node",
     "verbatimModuleSyntax": true,
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,

@@ -5,9 +5,10 @@
   "private": true,
   "devDependencies": {
     "@biomejs/biome": "2.4.3",
-    "@types/bun": "latest",
+    "@types/node": "^22.10.5",
     "husky": "^9.1.7",
-    "lint-staged": "^16.2.7"
+    "lint-staged": "^16.2.7",
+    "vitest": "^2.1.8"
   },
   "peerDependencies": {
     "typescript": "^5"
@@ -21,10 +22,13 @@
     "typeorm": "^0.3.27"
   },
   "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
     "format": "biome format --write ./src",
     "lint": "biome check --apply ./src",
-    "test": "bun test",
-    "test:integration": "bun test tests/integration"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:integration": "vitest run tests/integration"
   },
   "lint-staged": {
     "*.{js,ts,svelte}": [

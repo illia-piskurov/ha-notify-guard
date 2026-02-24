@@ -20,7 +20,7 @@ HA Notify Guard is a device monitoring service for Home Assistant:
 
 ## Project Structure
 
-- `notify-guard/` — backend (Bun + Hono + TypeORM + SQLite).
+- `notify-guard/` — backend (Node.js + Hono + TypeORM + SQLite).
 - `notify-guard/frontend/` — frontend (Svelte + Vite + shadcn-svelte).
 
 ## Local Run
@@ -29,29 +29,36 @@ HA Notify Guard is a device monitoring service for Home Assistant:
 
 ```bash
 cd notify-guard
-bun install
+npm install
+npm run dev
 ```
 
-Run (from repository root):
+Server starts at `http://localhost:8000` with hot reload.
+
+For production:
 
 ```bash
-bun run notify-guard/src/index.ts
+npm start
 ```
 
-Server starts at `http://localhost:8000`.
+Run tests:
+
+```bash
+npm test
+```
 
 ### 2) Frontend (dev)
 
 ```bash
 cd notify-guard/frontend
-bun install
-bun run dev
+npm install
+npm run dev
 ```
 
 Type check frontend:
 
 ```bash
-bun run check
+npm run check
 ```
 
 ## Main API
@@ -147,7 +154,7 @@ if ($connection) {
 Then start backend again:
 
 ```bash
-bun run notify-guard/src/index.ts
+npm run dev
 ```
 
 ### `HTTP 500` in frontend

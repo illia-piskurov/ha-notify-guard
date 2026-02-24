@@ -4,7 +4,7 @@ import { Hono } from 'hono';
 import { buildErrorDetails, writeAppLog } from './lib/app-logger';
 import { registerApiRoutes } from './routes';
 
-const DIST_ROOT = './dist';
+const DIST_ROOT = './frontend/dist';
 
 export function createApp() {
     const app = new Hono();

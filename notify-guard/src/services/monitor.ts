@@ -1,9 +1,14 @@
 import { Socket } from 'node:net';
+import { spawn } from 'node:child_process';
 import { dataSource } from '../db/data-source';
 import { Device, DeviceAlertState, DevicePingHistory } from '../db/entities';
 import { queueAlert } from './telegram';
 
 const RETRY_DELAYS_MS = [5_000, 10_000, 15_000] as const;
+
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export async function runMonitorCycle() {
     const deviceRepo = dataSource.getRepository(Device);
@@ -88,16 +93,22 @@ async function recordPingHistoryIfChanged(deviceId: number, status: 'online' | '
 
 async function probePing(ip: string): Promise<'online' | 'offline'> {
     const args = process.platform === 'win32'
-        ? ['ping', '-n', '1', '-w', '1000', ip]
-        : ['ping', '-c', '1', '-W', '1', ip];
+        ? ['-n', '1', '-w', '1000', ip]
+        : ['-c', '1', '-W', '1', ip];
 
-    const proc = Bun.spawn(args, {
-        stdout: 'ignore',
-        stderr: 'ignore',
+    return new Promise((resolve) => {
+        const proc = spawn('ping', args, {
+            stdio: 'ignore',
+        });
+
+        proc.on('close', (code) => {
+            resolve(code === 0 ? 'online' : 'offline');
+        });
+
+        proc.on('error', () => {
+            resolve('offline');
+        });
     });
-
-    const code = await proc.exited;
-    return code === 0 ? 'online' : 'offline';
 }
 
 async function probePingWithRetry(ip: string): Promise<'online' | 'offline'> {
@@ -107,7 +118,7 @@ async function probePingWithRetry(ip: string): Promise<'online' | 'offline'> {
     }
 
     for (const delayMs of RETRY_DELAYS_MS) {
-        await Bun.sleep(delayMs);
+        await sleep(delayMs);
         const retryStatus = await probePing(ip);
         if (retryStatus === 'online') {
             return 'online';
@@ -143,7 +154,7 @@ async function probeModbusWithRetry(ip: string): Promise<'open' | 'closed'> {
     }
 
     for (const delayMs of RETRY_DELAYS_MS) {
-        await Bun.sleep(delayMs);
+        await sleep(delayMs);
         const retryStatus = await probeModbus(ip);
         if (retryStatus === 'open') {
             return 'open';

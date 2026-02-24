@@ -168,7 +168,7 @@
         </div>
 
         <div class="min-h-0 flex-1 overflow-auto p-2">
-            <Table.Root>
+            <Table.Root class="text-sm">
                 <Table.Header>
                     <Table.Row>
                         <Table.Head>
@@ -194,19 +194,6 @@
                                 <span
                                     class="text-foreground text-sm font-semibold leading-none"
                                     >{sortIndicator("ip")}</span
-                                >
-                            </button>
-                        </Table.Head>
-                        <Table.Head>
-                            <button
-                                class="hover:text-foreground/80 inline-flex items-center gap-1"
-                                onclick={() => toggleDeviceSort("bots")}
-                                type="button"
-                            >
-                                {$_("devices.table.bots")}
-                                <span
-                                    class="text-foreground text-sm font-semibold leading-none"
-                                    >{sortIndicator("bots")}</span
                                 >
                             </button>
                         </Table.Head>
@@ -253,6 +240,22 @@
                                     />
                                 {/if}
                             </div>
+                        </Table.Head>
+                        <Table.Head>
+                            <button
+                                class="hover:text-foreground/80 inline-flex items-center gap-1"
+                                onclick={() => toggleDeviceSort("bots")}
+                                type="button"
+                            >
+                                {$_("devices.table.bots")}
+                                <span
+                                    class="text-foreground text-sm font-semibold leading-none"
+                                    >{sortIndicator("bots")}</span
+                                >
+                            </button>
+                        </Table.Head>
+                        <Table.Head>
+                            {$_("devices.table.status")}
                         </Table.Head>
                     </Table.Row>
                 </Table.Header>
