@@ -26,6 +26,8 @@ export function registerLogsRoutes(app: Hono) {
             logs: rows.map((row) => ({
                 id: row.id,
                 message: row.message,
+                idempotency_key: row.idempotencyKey,
+                source: row.source,
                 status: row.status,
                 attempts: row.attempts,
                 last_error: row.lastError,

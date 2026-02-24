@@ -100,6 +100,7 @@ export async function queueAlert(device: Device, message: string) {
                 botId: chat.botId,
                 token,
                 chatId: chat.chatId,
+                source: 'app',
                 message,
                 status: 'pending',
                 attempts: 0,
@@ -115,6 +116,115 @@ export async function queueAlert(device: Device, message: string) {
     }
 
     await notificationRepo.save(notifications);
+}
+
+export async function queueInboundMessageByBotName(input: {
+    botName: string;
+    message: string;
+    chatId?: string;
+    idempotencyKey?: string;
+    source?: string;
+}) {
+    const botRepo = dataSource.getRepository(Bot);
+    const botChatRepo = dataSource.getRepository(BotChat);
+    const notificationRepo = dataSource.getRepository(Notification);
+
+    const normalizedName = input.botName.trim().toLowerCase();
+    const bot = await botRepo
+        .createQueryBuilder('bot')
+        .where('LOWER(bot.name) = :name', { name: normalizedName })
+        .orderBy('bot.id', 'DESC')
+        .getOne();
+
+    if (!bot) {
+        return { success: false as const, error: 'Bot not found' };
+    }
+
+    const targetChatId = input.chatId?.trim();
+    const normalizedIdempotencyKey = input.idempotencyKey?.trim() || null;
+    const normalizedSource = input.source?.trim() || 'rest';
+    const chats = await botChatRepo.find({
+        where: {
+            botId: bot.id,
+            isActive: true,
+        },
+    });
+
+    const matchedChats = targetChatId
+        ? chats.filter((chat) => chat.chatId === targetChatId)
+        : chats;
+
+    if (matchedChats.length === 0) {
+        return {
+            success: false as const,
+            error: targetChatId
+                ? 'Active chat not found for this bot'
+                : 'No active chats configured for this bot',
+        };
+    }
+
+    const seenTargets = new Set<string>();
+    const targetChats = matchedChats.filter((chat) => {
+        const dedupeKey = `${bot.id}:${chat.chatId}`;
+        if (seenTargets.has(dedupeKey)) {
+            return false;
+        }
+        seenTargets.add(dedupeKey);
+        return true;
+    });
+
+    if (targetChats.length === 0) {
+        return { success: false as const, error: 'No targets resolved' };
+    }
+
+    if (normalizedIdempotencyKey) {
+        const existing = await notificationRepo.find({
+            where: targetChats.map((chat) => ({
+                botId: bot.id,
+                chatId: chat.chatId,
+                idempotencyKey: normalizedIdempotencyKey,
+            })),
+            order: { id: 'ASC' },
+        });
+
+        if (existing.length > 0) {
+            return {
+                success: true as const,
+                deduplicated: true as const,
+                botId: bot.id,
+                botName: bot.name,
+                queued: 0,
+                notificationIds: existing.map((item) => item.id),
+            };
+        }
+    }
+
+    const notifications = targetChats.map((chat) =>
+        notificationRepo.create({
+            botId: bot.id,
+            token: bot.token,
+            chatId: chat.chatId,
+            idempotencyKey: normalizedIdempotencyKey,
+            source: normalizedSource,
+            message: input.message,
+            status: 'pending',
+            attempts: 0,
+            sentAt: null,
+            lastError: null,
+            nextAttemptAt: null,
+        }),
+    );
+
+    const created = await notificationRepo.save(notifications);
+
+    return {
+        success: true as const,
+        deduplicated: false as const,
+        botId: bot.id,
+        botName: bot.name,
+        queued: created.length,
+        notificationIds: created.map((item) => item.id),
+    };
 }
 
 function toErrorMessage(error: unknown): string {

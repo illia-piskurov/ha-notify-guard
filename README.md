@@ -63,7 +63,43 @@ bun run check
 - `PATCH /api/devices/:id` — update monitoring and bot assignments.
 - `GET /api/devices/:id/history?period=24h|7d|30d|all` — availability history.
 - `GET /api/bots` and CRUD for bots/chats.
+- `POST /api/inbound/messages` — queue external Telegram message by `bot_name`.
 - `GET /api/logs?limit=...&app_limit=...` — notification queue + app logs.
+
+## External Message Inbound API (Node-RED / Home Assistant)
+
+Use this endpoint to send custom notifications through Notify Guard queue (with retries, backoff, and DB history):
+
+```http
+POST /api/inbound/messages
+Content-Type: application/json
+```
+
+Request body:
+
+```json
+{
+	"bot_name": "MainBot",
+	"chat_id": "-1001234567890",
+	"text": "Boiler room: pressure too high",
+	"source": "nodered",
+	"idempotency_key": "nodered-boiler-pressure-2026-02-24T09:01"
+}
+```
+
+Fields:
+
+- `bot_name` (required) — bot name from Notify Guard UI.
+- `text` (required) — message text.
+- `chat_id` (optional) — target a specific active chat of that bot.
+- `source` (optional) — prefix added to the message, e.g. `[nodered]`.
+- `idempotency_key` (required) — prevents duplicate queue records on repeated calls.
+
+Notes:
+
+- If `chat_id` is omitted, the message is queued for all active chats of that bot.
+- If `idempotency_key` is repeated for the same bot/chat, existing notification IDs are returned and new rows are not created.
+- Endpoint is open (no auth) by design for easy local integration/testing.
 
 ## Logs and Diagnostics
 

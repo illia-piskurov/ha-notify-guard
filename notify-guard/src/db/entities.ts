@@ -102,6 +102,12 @@ export class Notification {
     @Column({ name: 'chat_id', type: 'text' })
     chatId!: string;
 
+    @Column({ name: 'idempotency_key', type: 'text', nullable: true })
+    idempotencyKey!: string | null;
+
+    @Column({ type: 'text', default: 'app' })
+    source!: string;
+
     @Column({ type: 'text' })
     message!: string;
 

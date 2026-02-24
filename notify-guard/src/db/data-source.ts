@@ -6,7 +6,9 @@ import { ALL_ENTITIES } from './entities';
 
 const sourceDir = dirname(fileURLToPath(import.meta.url));
 const addonRoot = dirname(dirname(sourceDir));
-const dbPath = existsSync('/data') ? '/data/notifications.db' : join(addonRoot, 'data', 'notifications.db');
+const dbPath =
+    process.env.NOTIFY_GUARD_DB_PATH?.trim() ||
+    (existsSync('/data') ? '/data/notifications.db' : join(addonRoot, 'data', 'notifications.db'));
 
 mkdirSync(dirname(dbPath), { recursive: true });
 

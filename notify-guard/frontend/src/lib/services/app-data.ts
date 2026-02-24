@@ -1,21 +1,30 @@
 import { api } from "$lib/api/client";
-import type { Bot, Device, NetboxSettings } from "$lib/api/types";
+import type {
+    Bot,
+    Device,
+    LogsResponse,
+    NetboxSettings,
+} from "$lib/api/types";
 
 export type DeviceUpdatePatch = Partial<
     Pick<Device, "monitorPing" | "monitorModbus" | "assignedBotIds">
 >;
 
 export async function fetchAppData() {
-    const [devicesResponse, botsResponse, settingsResponse] = await Promise.all([
-        api<{ devices: Device[] }>("/api/devices"),
-        api<{ bots: Bot[] }>("/api/bots"),
-        api<NetboxSettings>("/api/settings/netbox"),
-    ]);
+    const [devicesResponse, botsResponse, settingsResponse, logsResponse] =
+        await Promise.all([
+            api<{ devices: Device[] }>("/api/devices"),
+            api<{ bots: Bot[] }>("/api/bots"),
+            api<NetboxSettings>("/api/settings/netbox"),
+            api<LogsResponse>("/api/logs?limit=100&app_limit=100"),
+        ]);
 
     return {
         devices: devicesResponse.devices,
         bots: botsResponse.bots,
         settings: settingsResponse,
+        logs: logsResponse.logs,
+        appLogs: logsResponse.app_logs,
     };
 }
 

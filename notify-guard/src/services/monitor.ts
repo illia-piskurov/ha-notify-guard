@@ -3,6 +3,8 @@ import { dataSource } from '../db/data-source';
 import { Device, DeviceAlertState, DevicePingHistory } from '../db/entities';
 import { queueAlert } from './telegram';
 
+const RETRY_DELAYS_MS = [5_000, 10_000, 15_000] as const;
+
 export async function runMonitorCycle() {
     const deviceRepo = dataSource.getRepository(Device);
     const alertStateRepo = dataSource.getRepository(DeviceAlertState);
@@ -14,8 +16,12 @@ export async function runMonitorCycle() {
         const pingEnabled = device.monitorPing;
         const modbusEnabled = device.monitorModbus && device.hasModbusTag;
 
-        const currentPingStatus = pingEnabled ? await probePing(device.ip) : 'disabled';
-        const currentModbusStatus = modbusEnabled ? await probeModbus(device.ip) : 'disabled';
+        const currentPingStatus = pingEnabled
+            ? await probePingWithRetry(device.ip)
+            : 'disabled';
+        const currentModbusStatus = modbusEnabled
+            ? await probeModbusWithRetry(device.ip)
+            : 'disabled';
 
         if (currentPingStatus === 'online' || currentPingStatus === 'offline') {
             await recordPingHistoryIfChanged(device.id, currentPingStatus);
@@ -94,6 +100,23 @@ async function probePing(ip: string): Promise<'online' | 'offline'> {
     return code === 0 ? 'online' : 'offline';
 }
 
+async function probePingWithRetry(ip: string): Promise<'online' | 'offline'> {
+    const firstAttempt = await probePing(ip);
+    if (firstAttempt === 'online') {
+        return 'online';
+    }
+
+    for (const delayMs of RETRY_DELAYS_MS) {
+        await Bun.sleep(delayMs);
+        const retryStatus = await probePing(ip);
+        if (retryStatus === 'online') {
+            return 'online';
+        }
+    }
+
+    return 'offline';
+}
+
 async function probeModbus(ip: string): Promise<'open' | 'closed'> {
     return new Promise((resolve) => {
         const socket = new Socket();
@@ -111,4 +134,21 @@ async function probeModbus(ip: string): Promise<'open' | 'closed'> {
 
         socket.connect(502, ip);
     });
+}
+
+async function probeModbusWithRetry(ip: string): Promise<'open' | 'closed'> {
+    const firstAttempt = await probeModbus(ip);
+    if (firstAttempt === 'open') {
+        return 'open';
+    }
+
+    for (const delayMs of RETRY_DELAYS_MS) {
+        await Bun.sleep(delayMs);
+        const retryStatus = await probeModbus(ip);
+        if (retryStatus === 'open') {
+            return 'open';
+        }
+    }
+
+    return 'closed';
 }

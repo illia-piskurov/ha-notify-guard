@@ -37,3 +37,33 @@ export type DeviceHistorySlice = {
 };
 
 export type HistoryPeriod = '24h' | '7d' | '30d' | 'all';
+
+export type NotificationLogEntry = {
+    id: number;
+    message: string;
+    idempotency_key: string | null;
+    source: string;
+    status: string;
+    attempts: number;
+    last_error: string | null;
+    next_attempt_at: string | null;
+    created_at: string | null;
+    sent_at: string | null;
+};
+
+export type AppLogEntry = {
+    id: number;
+    level: string;
+    scope: string;
+    message: string;
+    details: string | null;
+    path: string | null;
+    method: string | null;
+    status: number | null;
+    created_at: string | null;
+};
+
+export type LogsResponse = {
+    logs: NotificationLogEntry[];
+    app_logs: AppLogEntry[];
+};
