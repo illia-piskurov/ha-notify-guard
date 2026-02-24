@@ -1,6 +1,6 @@
 # notify-guard (backend)
 
-Backend-сервис для HA Notify Guard.
+Backend service for HA Notify Guard.
 
 ## Stack
 
@@ -8,37 +8,37 @@ Backend-сервис для HA Notify Guard.
 - Hono
 - TypeORM + SQLite
 
-## Установка
+## Installation
 
 ```bash
 bun install
 ```
 
-## Запуск
+## Run
 
-Из корня репозитория:
+From the repository root:
 
 ```bash
 bun run notify-guard/src/index.ts
 ```
 
-## Форматирование и lint
+## Formatting and lint
 
 ```bash
 bun run format
 bun run lint
 ```
 
-## Архитектура
+## Architecture
 
 - `src/index.ts` — entrypoint.
-- `src/app.ts` — создание Hono app.
+- `src/app.ts` — creates the Hono app.
 - `src/db/` — entities + datasource.
 - `src/routes/` — HTTP API.
-- `src/services/` — бизнес-логика.
-- `src/workers/` — фоновые задачи.
-- `src/lib/` — общие утилиты (логирование и т.д.).
+- `src/services/` — business logic.
+- `src/workers/` — background jobs.
+- `src/lib/` — shared utilities (logging, etc.).
 
-## См. также
+## See also
 
-Полное описание продукта и API — в корневом README: `../README.md`.
+For full product and API documentation, see the root README: `../README.md`.
