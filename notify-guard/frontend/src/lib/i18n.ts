@@ -35,6 +35,13 @@ const en = {
         searchPlaceholder: "Search device by name",
         onlyModbus: "Only modbus",
         resetFilters: "Reset filters",
+        bulkActions: {
+            title: "Bulk actions",
+            pingOn: "Enable Ping (all visible)",
+            pingOff: "Disable Ping (all visible)",
+            modbusOn: "Enable Modbus (all visible)",
+            modbusOff: "Disable Modbus (all visible)",
+        },
         table: {
             device: "Device",
             ip: "IP",
@@ -192,6 +199,13 @@ const uk = {
         searchPlaceholder: "Пошук пристрою по імені",
         onlyModbus: "Тільки modbus",
         resetFilters: "Скинути фільтри",
+        bulkActions: {
+            title: "Масові дії",
+            pingOn: "Увімкнути Ping (усі видимі)",
+            pingOff: "Вимкнути Ping (усі видимі)",
+            modbusOn: "Увімкнути Modbus (усі видимі)",
+            modbusOff: "Вимкнути Modbus (усі видимі)",
+        },
         table: {
             device: "Пристрій",
             ip: "IP",

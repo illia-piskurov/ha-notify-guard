@@ -59,6 +59,28 @@
         ) => "default" | "secondary" | "destructive" | "outline";
         statusLabel: (kind: "ping" | "modbus", status: string) => string | null;
     } = $props();
+
+    async function applyBulkAction(
+        action: "pingOn" | "pingOff" | "modbusOn" | "modbusOff",
+    ) {
+        const updates = sortedDevices.map((device) => {
+            if (action === "pingOn") {
+                return updateDevice(device.id, { monitorPing: true });
+            }
+            if (action === "pingOff") {
+                return updateDevice(device.id, { monitorPing: false });
+            }
+            if (action === "modbusOn" && device.hasModbusTag) {
+                return updateDevice(device.id, { monitorModbus: true });
+            }
+            if (action === "modbusOff" && device.hasModbusTag) {
+                return updateDevice(device.id, { monitorModbus: false });
+            }
+            return Promise.resolve();
+        });
+
+        await Promise.all(updates);
+    }
 </script>
 
 <section class="flex min-h-0 flex-1 flex-col gap-3">
@@ -139,6 +161,44 @@
                 </Button>
             </div>
         </div>
+
+        {#if sortedDevices.length > 0}
+            <div class="flex flex-wrap items-center gap-2 border-t p-2">
+                <span class="text-muted-foreground text-xs font-medium">
+                    {$_("devices.bulkActions.title")}:
+                </span>
+                <div class="flex flex-wrap gap-1">
+                    <Button
+                        size="sm"
+                        variant="outline"
+                        onclick={() => applyBulkAction("pingOn")}
+                    >
+                        {$_("devices.bulkActions.pingOn")}
+                    </Button>
+                    <Button
+                        size="sm"
+                        variant="outline"
+                        onclick={() => applyBulkAction("pingOff")}
+                    >
+                        {$_("devices.bulkActions.pingOff")}
+                    </Button>
+                    <Button
+                        size="sm"
+                        variant="outline"
+                        onclick={() => applyBulkAction("modbusOn")}
+                    >
+                        {$_("devices.bulkActions.modbusOn")}
+                    </Button>
+                    <Button
+                        size="sm"
+                        variant="outline"
+                        onclick={() => applyBulkAction("modbusOff")}
+                    >
+                        {$_("devices.bulkActions.modbusOff")}
+                    </Button>
+                </div>
+            </div>
+        {/if}
 
         <div class="min-h-0 flex-1 overflow-auto p-2">
             <Table.Root>

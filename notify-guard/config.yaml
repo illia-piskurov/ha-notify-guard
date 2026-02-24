@@ -1,5 +1,5 @@
 name: "Notify Guard"
-version: "1.0.9"
+version: "1.0.10"
 slug: "notify_guard"
 description: "Reliable messaging service with queue and history (Retries & SQLite)"
 arch:
