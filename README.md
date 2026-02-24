@@ -1,29 +1,29 @@
 # HA Notify Guard
 
-HA Notify Guard — это сервис мониторинга устройств для Home Assistant:
+HA Notify Guard is a device monitoring service for Home Assistant:
 
-- подтягивает IP-адреса из NetBox,
-- проверяет доступность по Ping и Modbus TCP (502),
-- отправляет уведомления в Telegram (несколько ботов и чатов),
-- хранит очередь и историю в SQLite,
-- делает ретраи отправки с backoff при проблемах с интернетом.
+- pulls IP addresses from NetBox,
+- checks availability via Ping and Modbus TCP (502),
+- sends Telegram notifications (multiple bots and chats),
+- stores queue data and history in SQLite,
+- retries delivery with backoff when internet connectivity is unstable.
 
-## Что умеет
+## Features
 
-- Синхронизация устройств из NetBox (`ipam/ip-addresses`) с пагинацией.
-- Включение/выключение мониторинга Ping и Modbus для каждого устройства.
-- Привязка устройств к ботам, поддержка нескольких чатов на одного бота.
-- Анти-спам логика: уведомление об аварии один раз на эпизод падения.
-- Guaranteed delivery: очередь Telegram-сообщений с повторными попытками.
-- История доступности устройства (срезы online/offline за период).
-- Веб-интерфейс на Svelte с локализацией EN/UA.
+- NetBox device sync from `ipam/ip-addresses` with pagination.
+- Enable/disable Ping and Modbus monitoring per device.
+- Assign devices to bots, with support for multiple chats per bot.
+- Anti-spam alert logic: one outage notification per outage episode.
+- Guaranteed delivery: Telegram queue with automatic retries.
+- Device availability history (online/offline slices by period).
+- Svelte web UI with EN/UA localization.
 
-## Структура проекта
+## Project Structure
 
 - `notify-guard/` — backend (Bun + Hono + TypeORM + SQLite).
 - `notify-guard/frontend/` — frontend (Svelte + Vite + shadcn-svelte).
 
-## Локальный запуск
+## Local Run
 
 ### 1) Backend
 
@@ -32,13 +32,13 @@ cd notify-guard
 bun install
 ```
 
-Запуск (из корня репозитория):
+Run (from repository root):
 
 ```bash
 bun run notify-guard/src/index.ts
 ```
 
-Сервер поднимается на `http://localhost:8000`.
+Server starts at `http://localhost:8000`.
 
 ### 2) Frontend (dev)
 
@@ -48,56 +48,56 @@ bun install
 bun run dev
 ```
 
-Проверка типов фронтенда:
+Type check frontend:
 
 ```bash
 bun run check
 ```
 
-## Основные API
+## Main API
 
-- `GET /api/health` — healthcheck.
-- `GET|PUT /api/settings/netbox` — настройки NetBox.
-- `POST /api/netbox/sync` — синхронизация устройств.
-- `GET /api/devices` — список устройств.
-- `PATCH /api/devices/:id` — обновление мониторинга/назначений.
-- `GET /api/devices/:id/history?period=24h|7d|30d|all` — история доступности.
-- `GET /api/bots` и CRUD для ботов/чатов.
-- `GET /api/logs?limit=...&app_limit=...` — очередь уведомлений + app logs.
+- `GET /api/health` — health check.
+- `GET|PUT /api/settings/netbox` — NetBox settings.
+- `POST /api/netbox/sync` — device sync.
+- `GET /api/devices` — device list.
+- `PATCH /api/devices/:id` — update monitoring and bot assignments.
+- `GET /api/devices/:id/history?period=24h|7d|30d|all` — availability history.
+- `GET /api/bots` and CRUD for bots/chats.
+- `GET /api/logs?limit=...&app_limit=...` — notification queue + app logs.
 
-## Логи и диагностика
+## Logs and Diagnostics
 
-`/api/logs` возвращает два блока:
+`/api/logs` returns two blocks:
 
-- `logs` — Telegram-очередь (`status`, `attempts`, `last_error`, `next_attempt_at`).
-- `app_logs` — системные backend-ошибки (`scope`, `path`, `status`, `details`).
+- `logs` — Telegram queue (`status`, `attempts`, `last_error`, `next_attempt_at`).
+- `app_logs` — backend system errors (`scope`, `path`, `status`, `details`).
 
-Это помогает разбирать `HTTP 500` и проблемы отправки уведомлений постфактум.
+This helps diagnose `HTTP 500` and delivery issues after the fact.
 
 ## Roadmap
 
-### MVP (уже реализовано)
+### MVP (already implemented)
 
-- Синхронизация устройств из NetBox.
-- Мониторинг Ping/Modbus по устройствам.
-- Telegram-уведомления с очередью, ретраями и backoff.
-- История доступности и базовая аналитика по периодам.
-- Локализация интерфейса EN/UA.
+- Device sync from NetBox.
+- Per-device Ping/Modbus monitoring.
+- Telegram notifications with queue, retries, and backoff.
+- Availability history and basic period analytics.
+- EN/UA UI localization.
 
 ### Next
 
-- Вкладка/экран app logs во frontend (без ручных API-запросов).
-- Улучшенный health endpoint (статус БД, состояние воркеров, длина очереди).
-- Настраиваемые пороги/параметры retry policy через UI.
-- Базовые e2e/интеграционные тесты для критичных API.
+- Dedicated app logs screen in frontend (without manual API calls).
+- Improved health endpoint (DB status, worker status, queue length).
+- Configurable retry policy thresholds/parameters in UI.
+- Basic e2e/integration tests for critical APIs.
 
 ## Troubleshooting
 
-### `EADDRINUSE` (порт 8000 уже занят)
+### `EADDRINUSE` (port 8000 is already in use)
 
-Причина: уже запущен другой процесс backend.
+Cause: another backend process is already running.
 
-Решение (PowerShell):
+Solution (PowerShell):
 
 ```powershell
 $connection = Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue
@@ -108,55 +108,80 @@ if ($connection) {
 }
 ```
 
-После этого запустите backend снова:
+Then start backend again:
 
 ```bash
 bun run notify-guard/src/index.ts
 ```
 
-### На фронте `HTTP 500`
+### `HTTP 500` in frontend
 
-Проверьте backend-логи через:
+Check backend logs via:
 
 ```text
 GET /api/logs?limit=50&app_limit=50
 ```
 
-Смотрите блок `app_logs` (`scope`, `path`, `status`, `details`) — это основной источник причины 500.
+Inspect `app_logs` (`scope`, `path`, `status`, `details`) — this is the primary source for root cause.
 
-### Telegram не отправляет уведомления
+### Telegram notifications are not being sent
 
-1. Убедитесь, что устройство назначено хотя бы одному боту.
-2. У бота должен быть хотя бы один активный chat (`isActive=true`).
-3. Проверяйте `logs` в `/api/logs`:
-	 - `status=failed` + `last_error` — текущая причина фейла,
-	 - `next_attempt_at` — когда будет следующая попытка (backoff).
+1. Make sure the device is assigned to at least one bot.
+2. The bot must have at least one active chat (`isActive=true`).
+3. Check `logs` in `/api/logs`:
+	 - `status=failed` + `last_error` — current failure reason,
+	 - `next_attempt_at` — when the next retry will run (backoff).
 
-### Настройки NetBox не сохраняются
+### NetBox settings are not saved
 
-Проверьте обязательные поля:
+Check required fields:
 
 - `netbox_url`
 - `netbox_token`
 
-Если значения заполнены, но ошибка сохраняется — смотрите `app_logs` в `/api/logs` и текст ошибки в `details`.
+If values are present but the error remains, inspect `app_logs` in `/api/logs` and the error text in `details`.
 
-## Backend (внутренняя архитектура)
+## Backend (Internal Architecture)
 
-Текущая backend-структура после рефакторинга:
+Current backend structure after refactoring:
 
-- `src/index.ts` — тонкий entrypoint (инициализация runtime + экспорт `fetch`).
-- `src/app.ts` — сборка Hono-приложения, middleware, error handler, fallback.
+- `src/index.ts` — thin entrypoint (runtime init + `fetch` export).
+- `src/app.ts` — Hono app assembly, middleware, error handler, fallback.
 - `src/db/`
-	- `entities.ts` — TypeORM сущности,
-	- `data-source.ts` — конфигурация и инициализация SQLite.
+	- `entities.ts` — TypeORM entities,
+	- `data-source.ts` — SQLite configuration and initialization.
 - `src/routes/`
-	- `index.ts` — централизованная регистрация API,
+	- `index.ts` — centralized API registration,
 	- `settings-netbox.ts`, `devices.ts`, `bots.ts`, `logs.ts`.
 - `src/services/`
 	- `settings.ts`, `netbox.ts`, `devices.ts`, `history.ts`,
 	- `monitor.ts`, `telegram.ts`, `migrations.ts`, `runtime.ts`.
-- `src/workers/scheduler.ts` — фоновые циклы monitor/telegram.
-- `src/lib/app-logger.ts` — системное логирование ошибок/исключений.
+- `src/workers/scheduler.ts` — background monitor/telegram loops.
+- `src/lib/app-logger.ts` — system-level error/exception logging.
 
-Этот layout упрощает поддержку, тестирование и дальнейшее развитие без роста `index.ts`.
+This layout simplifies maintenance, testing, and future evolution without growing `index.ts`.
+
+## Frontend (Internal Architecture)
+
+Current frontend structure after step-by-step refactoring:
+
+- `frontend/src/App.svelte` — layout + wiring (tabs, feature composition, orchestration).
+- `frontend/src/lib/api/`
+	- `client.ts` — shared fetch client,
+	- `types.ts` — shared API/domain types.
+- `frontend/src/lib/components/features/`
+	- `DevicesFeature.svelte` — devices screen and NetBox settings,
+	- `BotsFeature.svelte` — bots screen,
+	- `BotSettingsDialog.svelte` — manage chats for selected bot,
+	- `DeviceHistoryDialog.svelte` — history modal for selected device,
+	- `HistoryFeatureContent.svelte` — history table content (periods/statuses/durations).
+- `frontend/src/lib/stores/`
+	- `preferences.ts` — theme + locale,
+	- `toasts.ts` — global toast notifications,
+	- `device-filters.ts` — device search/filter/sort.
+- `frontend/src/lib/services/`
+	- `app-data.ts` — data operations for `App` (load/sync/update/create/delete),
+	- `device-ui.ts` — status and bot-assignment UI helpers.
+- `frontend/src/lib/components/ui/` — shadcn-svelte primitives (Button, Dialog, Table, Switch, etc.).
+
+This separation reduces `App.svelte` size, removes duplication, and makes feature growth safer without touching the whole screen.
