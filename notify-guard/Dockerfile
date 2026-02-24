@@ -12,10 +12,7 @@ RUN apk add --no-cache bash curl jq sqlite
 WORKDIR /app
 
 COPY package.json bun.lock* ./
-# Install build dependencies for sqlite3 native module
-RUN apk add --no-cache --virtual .build-deps python3 make g++ && \
-    npm install --omit=dev && \
-    apk del .build-deps
+RUN npm install --omit=dev
 
 COPY src ./src
 COPY tsconfig.json ./

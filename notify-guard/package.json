@@ -24,8 +24,7 @@
     "format": "biome format --write ./src",
     "lint": "biome check --apply ./src",
     "test": "bun test",
-    "test:integration": "bun test tests/integration",
-    "prepare": "husky"
+    "test:integration": "bun test tests/integration"
   },
   "lint-staged": {
     "*.{js,ts,svelte}": [
