@@ -217,6 +217,21 @@ export class DeviceAlertState {
     updatedAt!: Date | null;
 }
 
+@Entity('device_port_alert_state')
+export class DevicePortAlertState {
+    @PrimaryColumn({ name: 'device_id', type: 'integer' })
+    deviceId!: number;
+
+    @PrimaryColumn({ type: 'integer' })
+    port!: number;
+
+    @Column({ name: 'down_sent', type: 'boolean', default: false })
+    downSent!: boolean;
+
+    @UpdateDateColumn({ name: 'updated_at', type: 'datetime', nullable: true })
+    updatedAt!: Date | null;
+}
+
 export const ALL_ENTITIES = [
     Setting,
     Bot,
@@ -228,4 +243,5 @@ export const ALL_ENTITIES = [
     AppLog,
     DevicePingHistory,
     DeviceAlertState,
+    DevicePortAlertState,
 ] as const;

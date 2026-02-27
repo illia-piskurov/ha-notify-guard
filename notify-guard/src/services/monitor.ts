@@ -1,7 +1,7 @@
 import { Socket } from 'node:net';
 import { spawn } from 'node:child_process';
 import { dataSource } from '../db/data-source';
-import { Device, DeviceAlertState, DevicePingHistory, DevicePortMonitor } from '../db/entities';
+import { Device, DeviceAlertState, DevicePingHistory, DevicePortAlertState, DevicePortMonitor } from '../db/entities';
 import { queueAlert } from './telegram';
 
 const RETRY_DELAYS_MS = [5_000, 10_000, 15_000] as const;
@@ -14,6 +14,7 @@ export async function runMonitorCycle() {
     const deviceRepo = dataSource.getRepository(Device);
     const portRepo = dataSource.getRepository(DevicePortMonitor);
     const alertStateRepo = dataSource.getRepository(DeviceAlertState);
+    const portAlertStateRepo = dataSource.getRepository(DevicePortAlertState);
     const devices = await deviceRepo.find();
 
     for (const device of devices) {
@@ -43,7 +44,11 @@ export async function runMonitorCycle() {
         }
 
         const now = new Date();
+        const monitoredPortSet = new Set<number>();
+
         for (const portMonitor of monitoredPorts) {
+            monitoredPortSet.add(portMonitor.port);
+
             const portStatus = portMonitor.port === 502
                 ? currentModbusStatus
                 : await probePortWithRetry(device.ip, portMonitor.port);
@@ -51,6 +56,41 @@ export async function runMonitorCycle() {
             portMonitor.lastStatus = portStatus;
             portMonitor.lastScannedAt = now;
             await portRepo.save(portMonitor);
+
+            let portAlertState = await portAlertStateRepo.findOneBy({
+                deviceId: device.id,
+                port: portMonitor.port,
+            });
+
+            if (!portAlertState) {
+                portAlertState = portAlertStateRepo.create({
+                    deviceId: device.id,
+                    port: portMonitor.port,
+                    downSent: false,
+                });
+            }
+
+            if (portStatus === 'closed' && !portAlertState.downSent) {
+                await queueAlert(
+                    device,
+                    `⚠️ Port fail: ${device.name} (${device.ip}) ${portMonitor.label} TCP/${portMonitor.port} is closed`,
+                );
+                portAlertState.downSent = true;
+                await portAlertStateRepo.save(portAlertState);
+            }
+
+            if (portStatus === 'open' && portAlertState.downSent) {
+                portAlertState.downSent = false;
+                await portAlertStateRepo.save(portAlertState);
+            }
+        }
+
+        const stalePortAlertStates = await portAlertStateRepo.findBy({ deviceId: device.id });
+        for (const state of stalePortAlertStates) {
+            if (!monitoredPortSet.has(state.port) && state.downSent) {
+                state.downSent = false;
+                await portAlertStateRepo.save(state);
+            }
         }
 
         let alertState = await alertStateRepo.findOneBy({ deviceId: device.id });
@@ -72,12 +112,6 @@ export async function runMonitorCycle() {
 
         if ((!pingEnabled || currentPingStatus === 'online') && alertState.pingDownSent) {
             alertState.pingDownSent = false;
-            alertStateChanged = true;
-        }
-
-        if (modbusEnabled && currentModbusStatus === 'closed' && !alertState.modbusDownSent) {
-            await queueAlert(device, `⚠️ Modbus fail: ${device.name} (${device.ip}) TCP/502 is closed`);
-            alertState.modbusDownSent = true;
             alertStateChanged = true;
         }
 
