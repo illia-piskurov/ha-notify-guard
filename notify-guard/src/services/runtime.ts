@@ -1,5 +1,5 @@
 import { dataSource } from '../db/data-source';
-import { migrateLegacyBotChats } from './migrations';
+import { migrateLegacyBotChats, migrateLegacyDevicePorts } from './migrations';
 import { startBackgroundWorkers } from '../workers/scheduler';
 
 export async function initializeRuntime() {
@@ -8,6 +8,7 @@ export async function initializeRuntime() {
     }
 
     await migrateLegacyBotChats();
+    await migrateLegacyDevicePorts();
 
     startBackgroundWorkers();
 }

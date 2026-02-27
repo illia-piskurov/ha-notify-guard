@@ -2,6 +2,8 @@ import { api } from "$lib/api/client";
 import type {
     Bot,
     Device,
+    DevicePortsResponse,
+    ScanDevicePortsResponse,
     LogsResponse,
     NetboxSettings,
 } from "$lib/api/types";
@@ -60,6 +62,43 @@ export async function updateDevice(deviceId: number, patch: DeviceUpdatePatch) {
     );
 
     return response.device;
+}
+
+export async function fetchDevicePorts(deviceId: number) {
+    return api<DevicePortsResponse>(`/api/devices/${deviceId}/ports`);
+}
+
+export async function scanDevicePorts(deviceId: number) {
+    return api<ScanDevicePortsResponse>(`/api/devices/${deviceId}/ports/scan`, {
+        method: "POST",
+    });
+}
+
+export async function scanCustomDevicePort(deviceId: number, port: number) {
+    return api<ScanDevicePortsResponse>(
+        `/api/devices/${deviceId}/ports/scan-custom`,
+        {
+            method: "POST",
+            body: JSON.stringify({ port }),
+        },
+    );
+}
+
+export async function updateDevicePortMonitor(
+    deviceId: number,
+    port: number,
+    monitorEnabled: boolean,
+) {
+    return api<DevicePortsResponse>(`/api/devices/${deviceId}/ports/${port}`, {
+        method: "PATCH",
+        body: JSON.stringify({ monitorEnabled }),
+    });
+}
+
+export async function deleteDevicePort(deviceId: number, port: number) {
+    return api<DevicePortsResponse>(`/api/devices/${deviceId}/ports/${port}`, {
+        method: "DELETE",
+    });
 }
 
 export async function createBot(name: string, token: string) {

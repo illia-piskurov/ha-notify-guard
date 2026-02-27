@@ -1,7 +1,7 @@
 import { Socket } from 'node:net';
 import { spawn } from 'node:child_process';
 import { dataSource } from '../db/data-source';
-import { Device, DeviceAlertState, DevicePingHistory } from '../db/entities';
+import { Device, DeviceAlertState, DevicePingHistory, DevicePortMonitor } from '../db/entities';
 import { queueAlert } from './telegram';
 
 const RETRY_DELAYS_MS = [5_000, 10_000, 15_000] as const;
@@ -12,14 +12,24 @@ function sleep(ms: number): Promise<void> {
 
 export async function runMonitorCycle() {
     const deviceRepo = dataSource.getRepository(Device);
+    const portRepo = dataSource.getRepository(DevicePortMonitor);
     const alertStateRepo = dataSource.getRepository(DeviceAlertState);
-    const devices = await deviceRepo.find({
-        where: [{ monitorPing: true }, { monitorModbus: true }],
-    });
+    const devices = await deviceRepo.find();
 
     for (const device of devices) {
+        const monitoredPorts = await portRepo.find({
+            where: {
+                deviceId: device.id,
+                monitorEnabled: true,
+            },
+        });
+
         const pingEnabled = device.monitorPing;
-        const modbusEnabled = device.monitorModbus && device.hasModbusTag;
+        const modbusEnabled = monitoredPorts.some((item) => item.port === 502) || device.monitorModbus;
+
+        if (!pingEnabled && !modbusEnabled && monitoredPorts.length === 0) {
+            continue;
+        }
 
         const currentPingStatus = pingEnabled
             ? await probePingWithRetry(device.ip)
@@ -30,6 +40,17 @@ export async function runMonitorCycle() {
 
         if (currentPingStatus === 'online' || currentPingStatus === 'offline') {
             await recordPingHistoryIfChanged(device.id, currentPingStatus);
+        }
+
+        const now = new Date();
+        for (const portMonitor of monitoredPorts) {
+            const portStatus = portMonitor.port === 502
+                ? currentModbusStatus
+                : await probePortWithRetry(device.ip, portMonitor.port);
+
+            portMonitor.lastStatus = portStatus;
+            portMonitor.lastScannedAt = now;
+            await portRepo.save(portMonitor);
         }
 
         let alertState = await alertStateRepo.findOneBy({ deviceId: device.id });
@@ -71,6 +92,7 @@ export async function runMonitorCycle() {
 
         device.lastPingStatus = currentPingStatus;
         device.lastModbusStatus = currentModbusStatus;
+        device.monitorModbus = modbusEnabled;
         device.lastSeenAt = new Date();
 
         await deviceRepo.save(device);
@@ -156,6 +178,42 @@ async function probeModbusWithRetry(ip: string): Promise<'open' | 'closed'> {
     for (const delayMs of RETRY_DELAYS_MS) {
         await sleep(delayMs);
         const retryStatus = await probeModbus(ip);
+        if (retryStatus === 'open') {
+            return 'open';
+        }
+    }
+
+    return 'closed';
+}
+
+async function probePort(ip: string, port: number): Promise<'open' | 'closed'> {
+    return new Promise((resolve) => {
+        const socket = new Socket();
+
+        const finish = (status: 'open' | 'closed') => {
+            socket.removeAllListeners();
+            socket.destroy();
+            resolve(status);
+        };
+
+        socket.setTimeout(1000);
+        socket.once('connect', () => finish('open'));
+        socket.once('timeout', () => finish('closed'));
+        socket.once('error', () => finish('closed'));
+
+        socket.connect(port, ip);
+    });
+}
+
+async function probePortWithRetry(ip: string, port: number): Promise<'open' | 'closed'> {
+    const firstAttempt = await probePort(ip, port);
+    if (firstAttempt === 'open') {
+        return 'open';
+    }
+
+    for (const delayMs of RETRY_DELAYS_MS) {
+        await sleep(delayMs);
+        const retryStatus = await probePort(ip, port);
         if (retryStatus === 'open') {
             return 'open';
         }

@@ -9,6 +9,38 @@ export type Device = {
     lastModbusStatus: string;
     lastSeenAt: string | null;
     assignedBotIds: number[];
+    portStatuses: Array<{
+        port: number;
+        label: string;
+        status: "open" | "closed";
+    }>;
+};
+
+export type DevicePort = {
+    deviceId: number;
+    port: number;
+    label: string;
+    monitorEnabled: boolean;
+    lastStatus: string;
+    lastScannedAt: string | null;
+};
+
+export type DevicePortsResponse = {
+    success: boolean;
+    ports: DevicePort[];
+};
+
+export type ScanOpenPort = {
+    port: number;
+    label: string;
+    status: "open" | "closed";
+};
+
+export type ScanDevicePortsResponse = {
+    success: boolean;
+    scannedAt: string;
+    openPorts: ScanOpenPort[];
+    ports: DevicePort[];
 };
 
 export type Bot = {

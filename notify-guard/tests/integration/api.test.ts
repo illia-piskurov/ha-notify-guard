@@ -29,6 +29,29 @@ type DevicesListResponse = {
     devices: unknown[];
 };
 
+type DevicePortItem = {
+    deviceId: number;
+    port: number;
+    label: string;
+    monitorEnabled: boolean;
+    lastStatus: string;
+    lastScannedAt: string | null;
+};
+
+type DevicePortsResponse = {
+    success: boolean;
+    ports: DevicePortItem[];
+    error?: string;
+};
+
+type DevicePortsScanResponse = {
+    success: boolean;
+    scannedAt: string;
+    openPorts: Array<{ port: number; label: string; status: 'open' | 'closed' }>;
+    ports: DevicePortItem[];
+    error?: string;
+};
+
 type LogsResponse = {
     logs: unknown[];
     app_logs: unknown[];
@@ -53,6 +76,7 @@ describe('Notify Guard API integration', () => {
     let dataSource: (typeof import('../../src/db/data-source'))['dataSource'];
     let Bot: (typeof import('../../src/db/entities'))['Bot'];
     let BotChat: (typeof import('../../src/db/entities'))['BotChat'];
+    let Device: (typeof import('../../src/db/entities'))['Device'];
 
     beforeAll(async () => {
         process.env.NOTIFY_GUARD_DB_PATH = testDbPath;
@@ -65,6 +89,7 @@ describe('Notify Guard API integration', () => {
         dataSource = dataSourceModule.dataSource;
         Bot = entitiesModule.Bot;
         BotChat = entitiesModule.BotChat;
+        Device = entitiesModule.Device;
 
         if (!dataSource.isInitialized) {
             await dataSource.initialize();
@@ -294,6 +319,91 @@ describe('Notify Guard API integration', () => {
         expect(payload.success).toBe(false);
     });
 
+    it('GET /api/devices/:id/ports and known scan return port rows', async () => {
+        await seedDevice({ id: 1001, name: 'Switch A', ip: '127.0.0.1' });
+
+        const beforeScan = await app.request('/api/devices/1001/ports');
+        expect(beforeScan.status).toBe(200);
+        const beforePayload = await readJson<DevicePortsResponse>(beforeScan);
+        expect(beforePayload.success).toBe(true);
+        expect(beforePayload.ports.length).toBe(0);
+
+        const scan = await app.request('/api/devices/1001/ports/scan', {
+            method: 'POST',
+        });
+        expect(scan.status).toBe(200);
+        const scanPayload = await readJson<DevicePortsScanResponse>(scan);
+        expect(scanPayload.success).toBe(true);
+        expect(scanPayload.ports.length).toBeGreaterThanOrEqual(8);
+
+        const afterScan = await app.request('/api/devices/1001/ports');
+        expect(afterScan.status).toBe(200);
+        const afterPayload = await readJson<DevicePortsResponse>(afterScan);
+        expect(afterPayload.success).toBe(true);
+        expect(afterPayload.ports.length).toBeGreaterThanOrEqual(8);
+    });
+
+    it('custom closed unknown port is not persisted by scan-custom', async () => {
+        await seedDevice({ id: 1002, name: 'Offline Host', ip: '203.0.113.10' });
+
+        const scan = await app.request('/api/devices/1002/ports/scan-custom', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ port: 2163 }),
+        });
+
+        expect(scan.status).toBe(200);
+        const scanPayload = await readJson<DevicePortsScanResponse>(scan);
+        expect(scanPayload.success).toBe(true);
+
+        const listed = await app.request('/api/devices/1002/ports');
+        expect(listed.status).toBe(200);
+        const listedPayload = await readJson<DevicePortsResponse>(listed);
+        expect(listedPayload.success).toBe(true);
+        expect(listedPayload.ports.some((item) => item.port === 2163)).toBe(false);
+    });
+
+    it('custom port can be toggled and deleted; known port cannot be deleted', async () => {
+        await seedDevice({ id: 1003, name: 'Router A', ip: '127.0.0.1' });
+
+        const enableCustom = await app.request('/api/devices/1003/ports/2163', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ monitorEnabled: true }),
+        });
+        expect(enableCustom.status).toBe(200);
+        const enablePayload = await readJson<DevicePortsResponse>(enableCustom);
+        expect(enablePayload.success).toBe(true);
+        expect(enablePayload.ports.some((item) => item.port === 2163 && item.monitorEnabled)).toBe(true);
+
+        const deleteWhileEnabled = await app.request('/api/devices/1003/ports/2163', {
+            method: 'DELETE',
+        });
+        expect(deleteWhileEnabled.status).toBe(400);
+
+        const disableCustom = await app.request('/api/devices/1003/ports/2163', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ monitorEnabled: false }),
+        });
+        expect(disableCustom.status).toBe(200);
+
+        const deleteCustom = await app.request('/api/devices/1003/ports/2163', {
+            method: 'DELETE',
+        });
+        expect(deleteCustom.status).toBe(200);
+        const deletePayload = await readJson<DevicePortsResponse>(deleteCustom);
+        expect(deletePayload.success).toBe(true);
+        expect(deletePayload.ports.some((item) => item.port === 2163)).toBe(false);
+
+        await app.request('/api/devices/1003/ports/scan', { method: 'POST' });
+
+        const deleteKnown = await app.request('/api/devices/1003/ports/80', {
+            method: 'DELETE',
+        });
+        expect(deleteKnown.status).toBe(400);
+    });
+
     async function seedBotWithChats(input: {
         name: string;
         chats: Array<{ chatId: string; isActive: boolean }>;
@@ -321,5 +431,23 @@ describe('Notify Guard API integration', () => {
         );
 
         return bot;
+    }
+
+    async function seedDevice(input: { id: number; name: string; ip: string }) {
+        const deviceRepo = dataSource.getRepository(Device);
+
+        return deviceRepo.save(
+            deviceRepo.create({
+                id: input.id,
+                name: input.name,
+                ip: input.ip,
+                hasModbusTag: false,
+                monitorPing: false,
+                monitorModbus: false,
+                lastPingStatus: 'unknown',
+                lastModbusStatus: 'unknown',
+                lastSeenAt: null,
+            }),
+        );
     }
 });

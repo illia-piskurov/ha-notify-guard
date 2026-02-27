@@ -88,6 +88,30 @@ export class DeviceNotification {
     botId!: number;
 }
 
+@Entity('device_port_monitors')
+export class DevicePortMonitor {
+    @PrimaryColumn({ name: 'device_id', type: 'integer' })
+    deviceId!: number;
+
+    @PrimaryColumn({ type: 'integer' })
+    port!: number;
+
+    @Column({ type: 'text' })
+    label!: string;
+
+    @Column({ name: 'monitor_enabled', type: 'boolean', default: false })
+    monitorEnabled!: boolean;
+
+    @Column({ name: 'last_status', type: 'text', default: 'unknown' })
+    lastStatus!: string;
+
+    @Column({ name: 'last_scanned_at', type: 'datetime', nullable: true })
+    lastScannedAt!: Date | null;
+
+    @UpdateDateColumn({ name: 'updated_at', type: 'datetime', nullable: true })
+    updatedAt!: Date | null;
+}
+
 @Entity('notifications')
 export class Notification {
     @PrimaryGeneratedColumn()
@@ -199,6 +223,7 @@ export const ALL_ENTITIES = [
     BotChat,
     Device,
     DeviceNotification,
+    DevicePortMonitor,
     Notification,
     AppLog,
     DevicePingHistory,

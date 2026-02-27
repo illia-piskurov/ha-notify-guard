@@ -1,7 +1,7 @@
 import { get, writable } from "svelte/store";
 import type { Device } from "$lib/api/types";
 
-export type DeviceSortKey = "name" | "ip" | "ping" | "modbus" | "bots";
+export type DeviceSortKey = "name" | "ip" | "ping" | "bots";
 export type SortDirection = "asc" | "desc";
 
 export const deviceSearchQueryStore = writable("");
@@ -78,7 +78,7 @@ export function sortDevices(
 }
 
 function defaultSortDirection(key: DeviceSortKey): SortDirection {
-    if (key === "ping" || key === "modbus" || key === "bots") {
+    if (key === "ping" || key === "bots") {
         return "desc";
     }
 
@@ -107,10 +107,6 @@ function compareDevices(
 
     if (key === "ping") {
         return (Number(left.monitorPing) - Number(right.monitorPing)) * factor;
-    }
-
-    if (key === "modbus") {
-        return (Number(left.monitorModbus) - Number(right.monitorModbus)) * factor;
     }
 
     return (left.assignedBotIds.length - right.assignedBotIds.length) * factor;

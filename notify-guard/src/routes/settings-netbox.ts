@@ -3,6 +3,7 @@ import { In } from 'typeorm';
 import { dataSource } from '../db/data-source';
 import { Device, DeviceAlertState, DeviceNotification, DevicePingHistory } from '../db/entities';
 import { buildErrorDetails, writeAppLog } from '../lib/app-logger';
+import { ensureDevicePortRows } from '../services/device-ports';
 import { fetchNetboxIpAddresses, removeSubnetMask } from '../services/netbox';
 import { getNetboxSettings, upsertSetting, type NetboxSettings } from '../services/settings';
 
@@ -67,6 +68,8 @@ export function registerSettingsNetboxRoutes(app: Hono) {
                 synced += 1;
                 syncedIds.add(address.id);
             }
+
+            await ensureDevicePortRows(Array.from(syncedIds));
 
             const existingDevices = await deviceRepo.find({ select: { id: true } });
             const staleDeviceIds = existingDevices.map((device) => device.id).filter((id) => !syncedIds.has(id));

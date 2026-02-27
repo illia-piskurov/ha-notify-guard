@@ -7,7 +7,7 @@
     import { _ } from "svelte-i18n";
     import type { Bot, Device, NetboxSettings } from "$lib/api/types";
 
-    type DeviceSortKey = "name" | "ip" | "ping" | "modbus" | "bots";
+    type DeviceSortKey = "name" | "ip" | "ping" | "bots";
 
     let {
         settings,
@@ -45,9 +45,7 @@
         openDeviceHistory: (device: Device) => void | Promise<void>;
         updateDevice: (
             deviceId: number,
-            patch: Partial<
-                Pick<Device, "monitorPing" | "monitorModbus" | "assignedBotIds">
-            >,
+            patch: Partial<Pick<Device, "monitorPing" | "assignedBotIds">>,
         ) => void | Promise<void>;
         toggleAssignedBot: (
             device: Device,
@@ -64,26 +62,10 @@
         sortedDevices.length > 0 && sortedDevices.every((d) => d.monitorPing),
     );
 
-    let allModbusChecked = $derived(
-        sortedDevices.filter((d) => d.hasModbusTag).length > 0 &&
-            sortedDevices
-                .filter((d) => d.hasModbusTag)
-                .every((d) => d.monitorModbus),
-    );
-
     async function toggleAllPing(checked: boolean) {
         const updates = sortedDevices.map((device) =>
             updateDevice(device.id, { monitorPing: checked }),
         );
-        await Promise.all(updates);
-    }
-
-    async function toggleAllModbus(checked: boolean) {
-        const updates = sortedDevices
-            .filter((d) => d.hasModbusTag)
-            .map((device) =>
-                updateDevice(device.id, { monitorModbus: checked }),
-            );
         await Promise.all(updates);
     }
 </script>
@@ -220,28 +202,6 @@
                             </div>
                         </Table.Head>
                         <Table.Head>
-                            <div class="flex items-center gap-2">
-                                <button
-                                    class="hover:text-foreground/80 inline-flex items-center gap-1"
-                                    onclick={() => toggleDeviceSort("modbus")}
-                                    type="button"
-                                >
-                                    Modbus
-                                    <span
-                                        class="text-foreground text-sm font-semibold leading-none"
-                                        >{sortIndicator("modbus")}</span
-                                    >
-                                </button>
-                                {#if sortedDevices.filter((d) => d.hasModbusTag).length > 0}
-                                    <Switch
-                                        checked={allModbusChecked}
-                                        onCheckedChange={(checked) =>
-                                            toggleAllModbus(Boolean(checked))}
-                                    />
-                                {/if}
-                            </div>
-                        </Table.Head>
-                        <Table.Head>
                             <button
                                 class="hover:text-foreground/80 inline-flex items-center gap-1"
                                 onclick={() => toggleDeviceSort("bots")}
@@ -265,9 +225,6 @@
                             <Table.Cell>
                                 <div
                                     class="flex max-w-fit cursor-pointer items-center gap-1"
-                                    onclick={() => openDeviceHistory(device)}
-                                    role="button"
-                                    tabindex="0"
                                 >
                                     <button
                                         class="text-primary hover:underline"
@@ -292,21 +249,6 @@
                                             monitorPing: Boolean(checked),
                                         })}
                                 />
-                            </Table.Cell>
-                            <Table.Cell>
-                                {#if device.hasModbusTag}
-                                    <Switch
-                                        checked={device.monitorModbus}
-                                        onCheckedChange={(checked) =>
-                                            updateDevice(device.id, {
-                                                monitorModbus: Boolean(checked),
-                                            })}
-                                    />
-                                {:else}
-                                    <span class="text-muted-foreground text-xs"
-                                        >—</span
-                                    >
-                                {/if}
                             </Table.Cell>
                             <Table.Cell>
                                 <div class="flex flex-col gap-2">
@@ -351,19 +293,8 @@
                                             )}
                                         </Badge>
                                     {/if}
-                                    {#if statusLabel("modbus", device.lastModbusStatus)}
-                                        <Badge
-                                            variant={statusVariant(
-                                                device.lastModbusStatus,
-                                            )}
-                                        >
-                                            {statusLabel(
-                                                "modbus",
-                                                device.lastModbusStatus,
-                                            )}
-                                        </Badge>
-                                    {/if}
-                                    {#if !statusLabel("ping", device.lastPingStatus) && !statusLabel("modbus", device.lastModbusStatus)}
+
+                                    {#if !statusLabel("ping", device.lastPingStatus)}
                                         <span
                                             class="text-muted-foreground text-xs"
                                             >—</span
