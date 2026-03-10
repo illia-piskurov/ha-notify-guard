@@ -1,31 +1,37 @@
 import { dataSource } from '../db/data-source';
-import { Bot, BotChat, Device, DevicePortMonitor } from '../db/entities';
+import { BotChat, Chat, Device, DevicePortMonitor } from '../db/entities';
 import { ensureDevicePortRows } from './device-ports';
 
 export async function migrateLegacyBotChats() {
-    const botRepo = dataSource.getRepository(Bot);
     const botChatRepo = dataSource.getRepository(BotChat);
+    const chatRepo = dataSource.getRepository(Chat);
 
-    const bots = await botRepo.find();
-    for (const bot of bots) {
-        if (!bot.chatId?.trim()) {
+    const existingCatalog = await chatRepo.find();
+    const catalogByChatId = new Map(existingCatalog.map((chat) => [chat.chatId.trim(), chat]));
+
+    const botChats = await botChatRepo.find();
+    for (const botChat of botChats) {
+        if (botChat.chatRefId) {
             continue;
         }
 
-        const exists = await botChatRepo.findOneBy({
-            botId: bot.id,
-            chatId: bot.chatId.trim(),
-        });
-
-        if (exists) {
+        const normalizedChatId = botChat.chatId?.trim();
+        if (!normalizedChatId) {
             continue;
         }
 
-        await botChatRepo.save(botChatRepo.create({
-            botId: bot.id,
-            chatId: bot.chatId.trim(),
-            isActive: bot.isActive,
-        }));
+        let catalogChat = catalogByChatId.get(normalizedChatId);
+        if (!catalogChat) {
+            catalogChat = await chatRepo.save(chatRepo.create({
+                chatId: normalizedChatId,
+                name: normalizedChatId,
+                isActive: true,
+            }));
+            catalogByChatId.set(normalizedChatId, catalogChat);
+        }
+
+        botChat.chatRefId = catalogChat.id;
+        await botChatRepo.save(botChat);
     }
 }
 

@@ -21,6 +21,17 @@ type CreateBotResponse = {
     id: number;
 };
 
+type CreateChatResponse = {
+    success: boolean;
+    chat: {
+        id: number;
+        chatId: string;
+        name: string;
+        isActive: boolean;
+        assignmentCount: number;
+    };
+};
+
 type BotsListResponse = {
     bots: Array<{ id: number; chatCount: number; activeChatCount: number }>;
 };
@@ -76,6 +87,7 @@ describe('Notify Guard API integration', () => {
     let dataSource: (typeof import('../../src/db/data-source'))['dataSource'];
     let Bot: (typeof import('../../src/db/entities'))['Bot'];
     let BotChat: (typeof import('../../src/db/entities'))['BotChat'];
+    let Chat: (typeof import('../../src/db/entities'))['Chat'];
     let Device: (typeof import('../../src/db/entities'))['Device'];
 
     beforeAll(async () => {
@@ -89,6 +101,7 @@ describe('Notify Guard API integration', () => {
         dataSource = dataSourceModule.dataSource;
         Bot = entitiesModule.Bot;
         BotChat = entitiesModule.BotChat;
+        Chat = entitiesModule.Chat;
         Device = entitiesModule.Device;
 
         if (!dataSource.isInitialized) {
@@ -155,17 +168,35 @@ describe('Notify Guard API integration', () => {
         const createdPayload = await readJson<CreateBotResponse>(created);
         const botId = createdPayload.id;
 
-        await app.request(`/api/bots/${botId}/chats`, {
+        const createdChat1 = await app.request('/api/chats', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chatId: '111', isActive: true }),
+            body: JSON.stringify({ chatId: '111', name: 'Ops 111' }),
         });
+        expect(createdChat1.status).toBe(200);
+        const chat1 = await readJson<CreateChatResponse>(createdChat1);
 
-        await app.request(`/api/bots/${botId}/chats`, {
+        const createdChat2 = await app.request('/api/chats', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chatId: '222', isActive: false }),
+            body: JSON.stringify({ chatId: '222', name: 'Ops 222' }),
         });
+        expect(createdChat2.status).toBe(200);
+        const chat2 = await readJson<CreateChatResponse>(createdChat2);
+
+        const assign1 = await app.request(`/api/bots/${botId}/chats/${chat1.chat.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ assigned: true }),
+        });
+        expect(assign1.status).toBe(200);
+
+        const assign2 = await app.request(`/api/bots/${botId}/chats/${chat2.chat.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ assigned: true }),
+        });
+        expect(assign2.status).toBe(200);
 
         const list = await app.request('/api/bots');
         expect(list.status).toBe(200);
@@ -175,7 +206,7 @@ describe('Notify Guard API integration', () => {
 
         expect(bot).toBeDefined();
         expect(bot?.chatCount).toBe(2);
-        expect(bot?.activeChatCount).toBe(1);
+        expect(bot?.activeChatCount).toBe(2);
     });
 
     it('GET /api/devices and /api/logs return expected payload shape', async () => {
@@ -409,7 +440,8 @@ describe('Notify Guard API integration', () => {
         chats: Array<{ chatId: string; isActive: boolean }>;
     }) {
         const botRepo = dataSource.getRepository(Bot);
-        const chatRepo = dataSource.getRepository(BotChat);
+        const assignmentRepo = dataSource.getRepository(BotChat);
+        const chatRepo = dataSource.getRepository(Chat);
 
         const bot = await botRepo.save(
             botRepo.create({
@@ -420,12 +452,23 @@ describe('Notify Guard API integration', () => {
             }),
         );
 
-        await chatRepo.save(
+        const catalogChats = await chatRepo.save(
             input.chats.map((chat) =>
                 chatRepo.create({
+                    chatId: chat.chatId,
+                    name: chat.chatId,
+                    isActive: chat.isActive,
+                }),
+            ),
+        );
+
+        await assignmentRepo.save(
+            input.chats.map((chat, index) =>
+                assignmentRepo.create({
                     botId: bot.id,
                     chatId: chat.chatId,
                     isActive: chat.isActive,
+                    chatRefId: catalogChats[index]?.id ?? null,
                 }),
             ),
         );

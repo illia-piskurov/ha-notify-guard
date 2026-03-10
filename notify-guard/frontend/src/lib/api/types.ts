@@ -50,9 +50,18 @@ export type Bot = {
     activeChatCount: number;
 };
 
-export type BotChat = {
+export type Chat = {
     id: number;
     chatId: string;
+    name: string;
+    isActive: boolean;
+    assignmentCount: number;
+};
+
+export type BotChatAssignment = {
+    id: number;
+    chatId: string;
+    name: string;
     isActive: boolean;
 };
 

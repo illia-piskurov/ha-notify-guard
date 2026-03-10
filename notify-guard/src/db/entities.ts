@@ -34,6 +34,21 @@ export class Bot {
     isActive!: boolean;
 }
 
+@Entity('chats')
+export class Chat {
+    @PrimaryGeneratedColumn()
+    id!: number;
+
+    @Column({ name: 'chat_id', type: 'text' })
+    chatId!: string;
+
+    @Column({ type: 'text' })
+    name!: string;
+
+    @Column({ name: 'is_active', type: 'boolean', default: true })
+    isActive!: boolean;
+}
+
 @Entity('bot_chats')
 export class BotChat {
     @PrimaryGeneratedColumn()
@@ -44,6 +59,9 @@ export class BotChat {
 
     @Column({ name: 'chat_id', type: 'text' })
     chatId!: string;
+
+    @Column({ name: 'chat_ref_id', type: 'integer', nullable: true })
+    chatRefId!: number | null;
 
     @Column({ name: 'is_active', type: 'boolean', default: true })
     isActive!: boolean;
@@ -235,6 +253,7 @@ export class DevicePortAlertState {
 export const ALL_ENTITIES = [
     Setting,
     Bot,
+    Chat,
     BotChat,
     Device,
     DeviceNotification,

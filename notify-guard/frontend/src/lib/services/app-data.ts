@@ -1,6 +1,7 @@
 import { api } from "$lib/api/client";
 import type {
     Bot,
+    Chat,
     Device,
     DevicePortsResponse,
     ScanDevicePortsResponse,
@@ -13,10 +14,11 @@ export type DeviceUpdatePatch = Partial<
 >;
 
 export async function fetchAppData() {
-    const [devicesResponse, botsResponse, settingsResponse, logsResponse] =
+    const [devicesResponse, botsResponse, chatsResponse, settingsResponse, logsResponse] =
         await Promise.all([
             api<{ devices: Device[] }>("/api/devices"),
             api<{ bots: Bot[] }>("/api/bots"),
+            api<{ chats: Chat[] }>("/api/chats"),
             api<NetboxSettings>("/api/settings/netbox"),
             api<LogsResponse>("/api/logs?limit=100&app_limit=100"),
         ]);
@@ -24,6 +26,7 @@ export async function fetchAppData() {
     return {
         devices: devicesResponse.devices,
         bots: botsResponse.bots,
+        chats: chatsResponse.chats,
         settings: settingsResponse,
         logs: logsResponse.logs,
         appLogs: logsResponse.app_logs,
@@ -111,5 +114,36 @@ export async function createBot(name: string, token: string) {
 export async function deleteBot(botId: number) {
     return api<{ success: boolean }>(`/api/bots/${botId}`, {
         method: "DELETE",
+    });
+}
+
+export async function createChat(chatId: string, name: string) {
+    return api<{ success: boolean; chat: Chat }>("/api/chats", {
+        method: "POST",
+        body: JSON.stringify({ chatId, name }),
+    });
+}
+
+export async function deleteChat(chatId: number) {
+    return api<{ success: boolean }>(`/api/chats/${chatId}`, {
+        method: "DELETE",
+    });
+}
+
+export async function fetchBotChatAssignments(botId: number) {
+    return api<{
+        bot: { id: number; name: string };
+        chats: Array<Chat & { assigned: boolean }>;
+    }>(`/api/bots/${botId}/chats`);
+}
+
+export async function setBotChatAssignment(
+    botId: number,
+    chatId: number,
+    assigned: boolean,
+) {
+    return api<{ success: boolean }>(`/api/bots/${botId}/chats/${chatId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ assigned }),
     });
 }

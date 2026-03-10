@@ -8,20 +8,24 @@
     import BotsFeature from "$lib/components/features/BotsFeature.svelte";
     import LogsFeature from "$lib/components/features/LogsFeature.svelte";
     import RestInboundFeature from "$lib/components/features/RestInboundFeature.svelte";
-    import BotSettingsDialog from "$lib/components/features/BotSettingsDialog.svelte";
     import DeviceHistoryDialog from "$lib/components/features/DeviceHistoryDialog.svelte";
     import {
         type AppLogEntry,
         type Bot,
+        type Chat,
         type Device,
         type NetboxSettings,
         type NotificationLogEntry,
     } from "$lib/api/types";
     import {
         createBot as createBotRequest,
+        createChat as createChatRequest,
+        deleteChat as deleteChatRequest,
         deleteBot as deleteBotRequest,
         type DeviceUpdatePatch,
+        fetchBotChatAssignments,
         fetchAppData,
+        setBotChatAssignment,
         syncNetbox as syncNetboxRequest,
         updateDevice as updateDeviceRequest,
         updateNetboxSettings,
@@ -57,6 +61,7 @@
     let activeTab = $state<"devices" | "bots" | "logs" | "rest">("devices");
     let devices = $state<Device[]>([]);
     let bots = $state<Bot[]>([]);
+    let chats = $state<Chat[]>([]);
     let logs = $state<NotificationLogEntry[]>([]);
     let appLogs = $state<AppLogEntry[]>([]);
     let settings = $state<NetboxSettings>({
@@ -76,8 +81,11 @@
 
     let newBotName = $state("");
     let newBotToken = $state("");
-    let isBotDialogOpen = $state(false);
-    let selectedBotForSettings = $state<Bot | null>(null);
+    let newChatName = $state("");
+    let newChatId = $state("");
+    let selectedBotId = $state<number | null>(null);
+    let assignedChatIds = $state<number[]>([]);
+    let isBotChatsLoading = $state(false);
 
     let isHistoryDialogOpen = $state(false);
     let selectedDeviceForHistory = $state<Device | null>(null);
@@ -93,6 +101,17 @@
             $deviceSortDirectionStore,
         ),
     );
+
+    $effect(() => {
+        if (selectedBotId === null) {
+            return;
+        }
+
+        if (!bots.some((bot) => bot.id === selectedBotId)) {
+            selectedBotId = null;
+            assignedChatIds = [];
+        }
+    });
 
     onMount(() => {
         initializeAppLocale(get(locale));
@@ -142,6 +161,7 @@
             const payload = await fetchAppData();
             devices = payload.devices;
             bots = payload.bots;
+            chats = payload.chats;
             settings = payload.settings;
             logs = payload.logs;
             appLogs = payload.appLogs;
@@ -220,9 +240,69 @@
         }
     }
 
-    function openBotSettings(bot: Bot) {
-        selectedBotForSettings = bot;
-        isBotDialogOpen = true;
+    async function createChat() {
+        if (!newChatName.trim() || !newChatId.trim()) {
+            pushToast(t("bots.validation.chatNameAndIdRequired"), "error");
+            return;
+        }
+
+        try {
+            await createChatRequest(newChatId, newChatName);
+
+            newChatName = "";
+            newChatId = "";
+
+            pushToast(t("bots.chatCreated"), "success");
+            await loadAll();
+        } catch (error) {
+            pushToast(toError(error), "error");
+        }
+    }
+
+    async function selectBot(bot: Bot) {
+        selectedBotId = bot.id;
+        isBotChatsLoading = true;
+
+        try {
+            const response = await fetchBotChatAssignments(bot.id);
+            assignedChatIds = response.chats
+                .filter((chat) => chat.assigned)
+                .map((chat) => chat.id);
+        } catch (error) {
+            pushToast(toError(error), "error");
+            assignedChatIds = [];
+        } finally {
+            isBotChatsLoading = false;
+        }
+    }
+
+    async function toggleBotChatAssignment(
+        botId: number,
+        chatId: number,
+        assigned: boolean,
+    ) {
+        try {
+            await setBotChatAssignment(botId, chatId, assigned);
+
+            assignedChatIds = assigned
+                ? [...new Set([...assignedChatIds, chatId])]
+                : assignedChatIds.filter((id) => id !== chatId);
+
+            await loadAll({ showLoader: false });
+        } catch (error) {
+            pushToast(toError(error), "error");
+        }
+    }
+
+    async function deleteChat(chatId: number) {
+        try {
+            await deleteChatRequest(chatId);
+            assignedChatIds = assignedChatIds.filter((id) => id !== chatId);
+            pushToast(t("bots.chatDeleted"), "success");
+            await loadAll();
+        } catch (error) {
+            pushToast(toError(error), "error");
+        }
     }
 
     async function deleteBot(botId: number) {
@@ -483,13 +563,24 @@
 
             <BotsFeature
                 {bots}
+                {chats}
+                {selectedBotId}
+                {assignedChatIds}
+                isAssignmentsLoading={isBotChatsLoading}
                 {newBotName}
                 {newBotToken}
+                {newChatName}
+                {newChatId}
                 setNewBotName={(value) => (newBotName = value)}
                 setNewBotToken={(value) => (newBotToken = value)}
+                setNewChatName={(value) => (newChatName = value)}
+                setNewChatId={(value) => (newChatId = value)}
                 {createBot}
-                {openBotSettings}
+                {createChat}
+                {selectBot}
+                {toggleBotChatAssignment}
                 {deleteBot}
+                {deleteChat}
             />
         </section>
     {/if}
@@ -563,13 +654,6 @@
             <RestInboundFeature {logs} />
         </section>
     {/if}
-
-    <BotSettingsDialog
-        bind:open={isBotDialogOpen}
-        bot={selectedBotForSettings}
-        onDataChanged={loadAll}
-        onNotify={pushToast}
-    />
 
     <DeviceHistoryDialog
         bind:open={isHistoryDialogOpen}

@@ -1,6 +1,6 @@
 import { In } from 'typeorm';
 import { dataSource } from '../db/data-source';
-import { Bot, BotChat, Device, DeviceNotification, Notification } from '../db/entities';
+import { Bot, BotChat, Chat, Device, DeviceNotification, Notification } from '../db/entities';
 
 export async function runTelegramWorker() {
     const notificationRepo = dataSource.getRepository(Notification);
@@ -53,7 +53,6 @@ export async function runTelegramWorker() {
 export async function queueAlert(device: Device, message: string) {
     const mappingRepo = dataSource.getRepository(DeviceNotification);
     const botRepo = dataSource.getRepository(Bot);
-    const botChatRepo = dataSource.getRepository(BotChat);
     const notificationRepo = dataSource.getRepository(Notification);
 
     const mappings = await mappingRepo.findBy({ deviceId: device.id });
@@ -70,12 +69,7 @@ export async function queueAlert(device: Device, message: string) {
         return;
     }
 
-    const chats = await botChatRepo.find({
-        where: {
-            botId: In(assignedBots.map((bot) => bot.id)),
-            isActive: true,
-        },
-    });
+    const chats = await resolveBotTargetChats(assignedBots.map((bot) => bot.id));
 
     if (chats.length === 0) {
         return;
@@ -85,7 +79,7 @@ export async function queueAlert(device: Device, message: string) {
     const seenTargets = new Set<string>();
     const notifications = chats
         .map((chat) => {
-            const dedupeKey = `${chat.botId}:${chat.chatId}`;
+            const dedupeKey = `${chat.botId}:${chat.targetChatId}`;
             if (seenTargets.has(dedupeKey)) {
                 return null;
             }
@@ -99,7 +93,7 @@ export async function queueAlert(device: Device, message: string) {
             return notificationRepo.create({
                 botId: chat.botId,
                 token,
-                chatId: chat.chatId,
+                chatId: chat.targetChatId,
                 source: 'app',
                 message,
                 status: 'pending',
@@ -126,7 +120,6 @@ export async function queueInboundMessageByBotName(input: {
     source?: string;
 }) {
     const botRepo = dataSource.getRepository(Bot);
-    const botChatRepo = dataSource.getRepository(BotChat);
     const notificationRepo = dataSource.getRepository(Notification);
 
     const normalizedName = input.botName.trim().toLowerCase();
@@ -143,15 +136,10 @@ export async function queueInboundMessageByBotName(input: {
     const targetChatId = input.chatId?.trim();
     const normalizedIdempotencyKey = input.idempotencyKey?.trim() || null;
     const normalizedSource = input.source?.trim() || 'rest';
-    const chats = await botChatRepo.find({
-        where: {
-            botId: bot.id,
-            isActive: true,
-        },
-    });
+    const chats = await resolveBotTargetChats([bot.id]);
 
     const matchedChats = targetChatId
-        ? chats.filter((chat) => chat.chatId === targetChatId)
+        ? chats.filter((chat) => chat.targetChatId === targetChatId)
         : chats;
 
     if (matchedChats.length === 0) {
@@ -165,7 +153,7 @@ export async function queueInboundMessageByBotName(input: {
 
     const seenTargets = new Set<string>();
     const targetChats = matchedChats.filter((chat) => {
-        const dedupeKey = `${bot.id}:${chat.chatId}`;
+        const dedupeKey = `${bot.id}:${chat.targetChatId}`;
         if (seenTargets.has(dedupeKey)) {
             return false;
         }
@@ -181,7 +169,7 @@ export async function queueInboundMessageByBotName(input: {
         const existing = await notificationRepo.find({
             where: targetChats.map((chat) => ({
                 botId: bot.id,
-                chatId: chat.chatId,
+                chatId: chat.targetChatId,
                 idempotencyKey: normalizedIdempotencyKey,
             })),
             order: { id: 'ASC' },
@@ -203,7 +191,7 @@ export async function queueInboundMessageByBotName(input: {
         notificationRepo.create({
             botId: bot.id,
             token: bot.token,
-            chatId: chat.chatId,
+            chatId: chat.targetChatId,
             idempotencyKey: normalizedIdempotencyKey,
             source: normalizedSource,
             message: input.message,
@@ -225,6 +213,53 @@ export async function queueInboundMessageByBotName(input: {
         queued: created.length,
         notificationIds: created.map((item) => item.id),
     };
+}
+
+async function resolveBotTargetChats(botIds: number[]) {
+    if (botIds.length === 0) {
+        return [] as Array<{ botId: number; targetChatId: string }>;
+    }
+
+    const botChatRepo = dataSource.getRepository(BotChat);
+    const chatRepo = dataSource.getRepository(Chat);
+
+    const assignments = await botChatRepo.find({
+        where: {
+            botId: In(botIds),
+            isActive: true,
+        },
+    });
+
+    if (assignments.length === 0) {
+        return [] as Array<{ botId: number; targetChatId: string }>;
+    }
+
+    const chatRefIds = assignments
+        .map((assignment) => assignment.chatRefId)
+        .filter((value): value is number => typeof value === 'number');
+
+    const chatCatalog = chatRefIds.length > 0
+        ? await chatRepo.findBy(chatRefIds.map((id) => ({ id })))
+        : [];
+    const chatById = new Map(chatCatalog.map((chat) => [chat.id, chat]));
+
+    return assignments
+        .map((assignment) => {
+            const mappedChat = assignment.chatRefId
+                ? chatById.get(assignment.chatRefId)
+                : null;
+            const targetChatId = mappedChat?.chatId ?? assignment.chatId;
+
+            if (!targetChatId?.trim()) {
+                return null;
+            }
+
+            return {
+                botId: assignment.botId,
+                targetChatId: targetChatId.trim(),
+            };
+        })
+        .filter((item): item is { botId: number; targetChatId: string } => item !== null);
 }
 
 function toErrorMessage(error: unknown): string {
