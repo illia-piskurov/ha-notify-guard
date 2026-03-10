@@ -94,6 +94,24 @@ export class DeviceNotification {
     botId!: number;
 }
 
+@Entity('device_notification_targets')
+export class DeviceNotificationTarget {
+    @PrimaryColumn({ name: 'device_id', type: 'integer' })
+    deviceId!: number;
+
+    @PrimaryColumn({ name: 'bot_id', type: 'integer' })
+    botId!: number;
+
+    @PrimaryColumn({ name: 'chat_ref_id', type: 'integer' })
+    chatRefId!: number;
+
+    @Column({ name: 'ping_enabled', type: 'boolean', default: true })
+    pingEnabled!: boolean;
+
+    @Column({ name: 'port_enabled', type: 'boolean', default: true })
+    portEnabled!: boolean;
+}
+
 @Entity('device_port_monitors')
 export class DevicePortMonitor {
     @PrimaryColumn({ name: 'device_id', type: 'integer' })
@@ -242,6 +260,7 @@ export const ALL_ENTITIES = [
     BotChat,
     Device,
     DeviceNotification,
+    DeviceNotificationTarget,
     DevicePortMonitor,
     Notification,
     AppLog,

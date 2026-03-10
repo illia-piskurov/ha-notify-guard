@@ -8,6 +8,7 @@
     import BotsFeature from "$lib/components/features/BotsFeature.svelte";
     import LogsFeature from "$lib/components/features/LogsFeature.svelte";
     import RestInboundFeature from "$lib/components/features/RestInboundFeature.svelte";
+    import DeviceBotChatsDialog from "$lib/components/features/DeviceBotChatsDialog.svelte";
     import DeviceHistoryDialog from "$lib/components/features/DeviceHistoryDialog.svelte";
     import {
         type AppLogEntry,
@@ -92,6 +93,9 @@
 
     let isHistoryDialogOpen = $state(false);
     let selectedDeviceForHistory = $state<Device | null>(null);
+    let isBotChatsDialogOpen = $state(false);
+    let selectedDeviceForBotChats = $state<Device | null>(null);
+    let selectedBotForDeviceChats = $state<Bot | null>(null);
 
     let filteredDevices = $derived(
         filterDevices(devices, $deviceSearchQueryStore, $onlyModbusStore),
@@ -388,6 +392,12 @@
         isHistoryDialogOpen = true;
     }
 
+    function openBotChatSettings(device: Device, bot: Bot) {
+        selectedDeviceForBotChats = device;
+        selectedBotForDeviceChats = bot;
+        isBotChatsDialogOpen = true;
+    }
+
     function readStoredAutoRefreshSeconds(): number {
         if (typeof window === "undefined") {
             return 10;
@@ -574,6 +584,7 @@
                 {openDeviceHistory}
                 {updateDevice}
                 {toggleAssignedBot}
+                {openBotChatSettings}
                 {statusVariant}
                 {statusLabel}
             />
@@ -714,6 +725,13 @@
     <DeviceHistoryDialog
         bind:open={isHistoryDialogOpen}
         device={selectedDeviceForHistory}
+        onNotify={pushToast}
+    />
+
+    <DeviceBotChatsDialog
+        bind:open={isBotChatsDialogOpen}
+        device={selectedDeviceForBotChats}
+        bot={selectedBotForDeviceChats}
         onNotify={pushToast}
     />
 

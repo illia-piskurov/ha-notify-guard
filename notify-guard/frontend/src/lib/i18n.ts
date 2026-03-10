@@ -52,6 +52,19 @@ const en = {
             noResults: "Nothing found for current filter.",
             addBotHint: "Add a bot in the \"Bots\" tab",
         },
+        botChatsDialog: {
+            title: "Bot chat routing",
+            subtitle: "{device} -> {bot}",
+            loading: "Loading chats...",
+            empty: "This bot has no active chats.",
+            hint: "Choose where to send ping and port alerts for this device.",
+            table: {
+                chat: "Chat",
+                chatId: "Chat ID",
+                ping: "Ping alerts",
+                ports: "Port alerts",
+            },
+        },
     },
     bots: {
         title: "New Telegram bot",
@@ -264,6 +277,19 @@ const uk = {
             status: "Статус",
             noResults: "Нічого не знайдено за поточним фільтром.",
             addBotHint: "Додайте бота у вкладці \"Боти\"",
+        },
+        botChatsDialog: {
+            title: "Маршрутизація чатів бота",
+            subtitle: "{device} -> {bot}",
+            loading: "Завантаження чатів...",
+            empty: "У цього бота немає активних чатів.",
+            hint: "Виберіть, куди надсилати ping і портові алерти для цього пристрою.",
+            table: {
+                chat: "Чат",
+                chatId: "Chat ID",
+                ping: "Ping сповіщення",
+                ports: "Портові сповіщення",
+            },
         },
     },
     bots: {

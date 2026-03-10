@@ -209,6 +209,68 @@ describe('Notify Guard API integration', () => {
         expect(bot?.activeChatCount).toBe(2);
     });
 
+    it('device bot chat settings API returns defaults and persists toggles', async () => {
+        await seedDevice({ id: 1101, name: 'Switch B', ip: '127.0.0.1' });
+
+        const createdBot = await app.request('/api/bots', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: 'NotifyBot', token: 'token-1101' }),
+        });
+        expect(createdBot.status).toBe(200);
+        const botPayload = await readJson<CreateBotResponse>(createdBot);
+
+        const createdChat = await app.request('/api/chats', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chatId: '7001', name: 'Primary' }),
+        });
+        expect(createdChat.status).toBe(200);
+        const chatPayload = await readJson<CreateChatResponse>(createdChat);
+
+        const assignBotChat = await app.request(`/api/bots/${botPayload.id}/chats/${chatPayload.chat.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ assigned: true }),
+        });
+        expect(assignBotChat.status).toBe(200);
+
+        const assignDeviceBot = await app.request('/api/devices/1101', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ assignedBotIds: [botPayload.id] }),
+        });
+        expect(assignDeviceBot.status).toBe(200);
+
+        const initial = await app.request(`/api/devices/1101/bots/${botPayload.id}/chats`);
+        expect(initial.status).toBe(200);
+        const initialPayload = await readJson<{
+            success: boolean;
+            chats: Array<{ id: number; pingEnabled: boolean; portEnabled: boolean }>;
+        }>(initial);
+        expect(initialPayload.success).toBe(true);
+        expect(initialPayload.chats.length).toBe(1);
+        expect(initialPayload.chats[0]?.pingEnabled).toBe(true);
+        expect(initialPayload.chats[0]?.portEnabled).toBe(true);
+
+        const update = await app.request(`/api/devices/1101/bots/${botPayload.id}/chats/${chatPayload.chat.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pingEnabled: false, portEnabled: true }),
+        });
+        expect(update.status).toBe(200);
+
+        const after = await app.request(`/api/devices/1101/bots/${botPayload.id}/chats`);
+        expect(after.status).toBe(200);
+        const afterPayload = await readJson<{
+            success: boolean;
+            chats: Array<{ id: number; pingEnabled: boolean; portEnabled: boolean }>;
+        }>(after);
+        expect(afterPayload.success).toBe(true);
+        expect(afterPayload.chats[0]?.pingEnabled).toBe(false);
+        expect(afterPayload.chats[0]?.portEnabled).toBe(true);
+    });
+
     it('GET /api/devices and /api/logs return expected payload shape', async () => {
         const devicesResponse = await app.request('/api/devices');
         expect(devicesResponse.status).toBe(200);

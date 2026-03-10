@@ -1,12 +1,142 @@
 import type { Hono } from 'hono';
+import { In } from 'typeorm';
 import { dataSource } from '../db/data-source';
-import { Device, DeviceNotification, DevicePingHistory, DevicePortMonitor } from '../db/entities';
+import { BotChat, Chat, Device, DeviceNotification, DeviceNotificationTarget, DevicePingHistory, DevicePortMonitor } from '../db/entities';
 import { getDevices } from '../services/devices';
 import { getDevicePorts, knownScanPorts, probeTcpPort, resolveKnownPort } from '../services/device-ports';
 import { buildPingAvailabilitySlices, getPeriodStartDate, toValidDate } from '../services/history';
 
 export function registerDevicesRoutes(app: Hono) {
     app.get('/api/devices', async (c) => c.json({ devices: await getDevices() }));
+
+    app.get('/api/devices/:id/bots/:botId/chats', async (c) => {
+        const id = Number(c.req.param('id'));
+        const botId = Number(c.req.param('botId'));
+
+        if (Number.isNaN(id) || Number.isNaN(botId)) {
+            return c.json({ success: false, error: 'Invalid route params' }, 400);
+        }
+
+        const deviceRepo = dataSource.getRepository(Device);
+        const mappingRepo = dataSource.getRepository(DeviceNotification);
+        const botChatRepo = dataSource.getRepository(BotChat);
+        const chatRepo = dataSource.getRepository(Chat);
+        const targetRepo = dataSource.getRepository(DeviceNotificationTarget);
+
+        const [device, mapping] = await Promise.all([
+            deviceRepo.findOneBy({ id }),
+            mappingRepo.findOneBy({ deviceId: id, botId }),
+        ]);
+
+        if (!device) {
+            return c.json({ success: false, error: 'Device not found' }, 404);
+        }
+
+        if (!mapping) {
+            return c.json({ success: false, error: 'Bot is not assigned to this device' }, 404);
+        }
+
+        const assignments = await botChatRepo.find({
+            where: { botId, isActive: true },
+            order: { id: 'DESC' },
+        });
+
+        const chatRefIds = assignments
+            .map((item) => item.chatRefId)
+            .filter((value): value is number => typeof value === 'number');
+
+        const catalog = chatRefIds.length > 0
+            ? await chatRepo.findBy({ id: In(chatRefIds), isActive: true })
+            : [];
+        const catalogById = new Map(catalog.map((item) => [item.id, item]));
+
+        const targets = await targetRepo.findBy({ deviceId: id, botId });
+        const targetByChatRefId = new Map(targets.map((item) => [item.chatRefId, item]));
+
+        const chats = assignments
+            .map((assignment) => {
+                const ref = assignment.chatRefId ? catalogById.get(assignment.chatRefId) : null;
+                if (!ref || !assignment.chatRefId) {
+                    return null;
+                }
+
+                const target = targetByChatRefId.get(assignment.chatRefId);
+                return {
+                    id: ref.id,
+                    chatId: ref.chatId,
+                    name: ref.name,
+                    pingEnabled: target?.pingEnabled ?? true,
+                    portEnabled: target?.portEnabled ?? true,
+                };
+            })
+            .filter((item): item is {
+                id: number;
+                chatId: string;
+                name: string;
+                pingEnabled: boolean;
+                portEnabled: boolean;
+            } => item !== null);
+
+        return c.json({ success: true, chats });
+    });
+
+    app.patch('/api/devices/:id/bots/:botId/chats/:chatId', async (c) => {
+        const id = Number(c.req.param('id'));
+        const botId = Number(c.req.param('botId'));
+        const chatId = Number(c.req.param('chatId'));
+        const body = await c.req.json<{ pingEnabled?: boolean; portEnabled?: boolean }>();
+
+        if (Number.isNaN(id) || Number.isNaN(botId) || Number.isNaN(chatId)) {
+            return c.json({ success: false, error: 'Invalid route params' }, 400);
+        }
+
+        if (typeof body.pingEnabled !== 'boolean' || typeof body.portEnabled !== 'boolean') {
+            return c.json({ success: false, error: 'pingEnabled and portEnabled are required' }, 400);
+        }
+
+        const deviceRepo = dataSource.getRepository(Device);
+        const mappingRepo = dataSource.getRepository(DeviceNotification);
+        const botChatRepo = dataSource.getRepository(BotChat);
+        const targetRepo = dataSource.getRepository(DeviceNotificationTarget);
+
+        const [device, mapping, assignment] = await Promise.all([
+            deviceRepo.findOneBy({ id }),
+            mappingRepo.findOneBy({ deviceId: id, botId }),
+            botChatRepo.findOneBy({ botId, chatRefId: chatId, isActive: true }),
+        ]);
+
+        if (!device) {
+            return c.json({ success: false, error: 'Device not found' }, 404);
+        }
+
+        if (!mapping) {
+            return c.json({ success: false, error: 'Bot is not assigned to this device' }, 404);
+        }
+
+        if (!assignment) {
+            return c.json({ success: false, error: 'Chat is not active for this bot' }, 404);
+        }
+
+        const existing = await targetRepo.findOneBy({
+            deviceId: id,
+            botId,
+            chatRefId: chatId,
+        });
+
+        const target = existing ?? targetRepo.create({
+            deviceId: id,
+            botId,
+            chatRefId: chatId,
+            pingEnabled: true,
+            portEnabled: true,
+        });
+
+        target.pingEnabled = body.pingEnabled;
+        target.portEnabled = body.portEnabled;
+        await targetRepo.save(target);
+
+        return c.json({ success: true });
+    });
 
     app.get('/api/devices/:id/ports', async (c) => {
         const id = Number(c.req.param('id'));

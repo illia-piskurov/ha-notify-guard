@@ -1,6 +1,6 @@
 import { In } from 'typeorm';
 import { dataSource } from '../db/data-source';
-import { Bot, BotChat, Chat, Device, DeviceNotification, Notification } from '../db/entities';
+import { Bot, BotChat, Chat, Device, DeviceNotification, DeviceNotificationTarget, Notification } from '../db/entities';
 
 export async function runTelegramWorker() {
     const notificationRepo = dataSource.getRepository(Notification);
@@ -50,8 +50,9 @@ export async function runTelegramWorker() {
     }
 }
 
-export async function queueAlert(device: Device, message: string) {
+export async function queueAlert(device: Device, message: string, kind: 'ping' | 'port') {
     const mappingRepo = dataSource.getRepository(DeviceNotification);
+    const targetRepo = dataSource.getRepository(DeviceNotificationTarget);
     const botRepo = dataSource.getRepository(Bot);
     const notificationRepo = dataSource.getRepository(Notification);
 
@@ -70,14 +71,25 @@ export async function queueAlert(device: Device, message: string) {
     }
 
     const chats = await resolveBotTargetChats(assignedBots.map((bot) => bot.id));
+    const targets = await targetRepo.findBy({ deviceId: device.id });
+    const targetByKey = new Map(targets.map((target) => [`${target.botId}:${target.chatRefId}`, target]));
 
-    if (chats.length === 0) {
+    const filteredChats = chats.filter((chat) => {
+        const target = targetByKey.get(`${chat.botId}:${chat.chatRefId}`);
+        if (!target) {
+            return true;
+        }
+
+        return kind === 'ping' ? target.pingEnabled : target.portEnabled;
+    });
+
+    if (filteredChats.length === 0) {
         return;
     }
 
     const tokenByBotId = new Map(assignedBots.map((bot) => [bot.id, bot.token]));
     const seenTargets = new Set<string>();
-    const notifications = chats
+    const notifications = filteredChats
         .map((chat) => {
             const dedupeKey = `${chat.botId}:${chat.targetChatId}`;
             if (seenTargets.has(dedupeKey)) {
@@ -217,7 +229,7 @@ export async function queueInboundMessageByBotName(input: {
 
 async function resolveBotTargetChats(botIds: number[]) {
     if (botIds.length === 0) {
-        return [] as Array<{ botId: number; targetChatId: string }>;
+        return [] as Array<{ botId: number; chatRefId: number; targetChatId: string }>;
     }
 
     const botChatRepo = dataSource.getRepository(BotChat);
@@ -231,7 +243,7 @@ async function resolveBotTargetChats(botIds: number[]) {
     });
 
     if (assignments.length === 0) {
-        return [] as Array<{ botId: number; targetChatId: string }>;
+        return [] as Array<{ botId: number; chatRefId: number; targetChatId: string }>;
     }
 
     const chatRefIds = assignments
@@ -254,12 +266,17 @@ async function resolveBotTargetChats(botIds: number[]) {
                 return null;
             }
 
+            if (!assignment.chatRefId) {
+                return null;
+            }
+
             return {
                 botId: assignment.botId,
+                chatRefId: assignment.chatRefId,
                 targetChatId: targetChatId.trim(),
             };
         })
-        .filter((item): item is { botId: number; targetChatId: string } => item !== null);
+        .filter((item): item is { botId: number; chatRefId: number; targetChatId: string } => item !== null);
 }
 
 function toErrorMessage(error: unknown): string {

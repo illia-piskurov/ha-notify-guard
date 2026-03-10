@@ -74,6 +74,7 @@ export async function runMonitorCycle() {
                 await queueAlert(
                     device,
                     `⚠️ Port fail: ${device.name} (${device.ip}) ${portMonitor.label} TCP/${portMonitor.port} is closed`,
+                    'port',
                 );
                 portAlertState.downSent = true;
                 await portAlertStateRepo.save(portAlertState);
@@ -104,7 +105,7 @@ export async function runMonitorCycle() {
         let alertStateChanged = false;
 
         if (pingEnabled && currentPingStatus === 'offline' && !alertState.pingDownSent) {
-            await queueAlert(device, `🚨 Ping fail: ${device.name} (${device.ip}) is unreachable`);
+            await queueAlert(device, `🚨 Ping fail: ${device.name} (${device.ip}) is unreachable`, 'ping');
             alertState.pingDownSent = true;
             alertStateChanged = true;
         }

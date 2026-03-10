@@ -163,3 +163,31 @@ export async function resetDatabase() {
         method: "POST",
     });
 }
+
+export async function fetchDeviceBotChatTargets(deviceId: number, botId: number) {
+    return api<{
+        success: boolean;
+        chats: Array<{
+            id: number;
+            chatId: string;
+            name: string;
+            pingEnabled: boolean;
+            portEnabled: boolean;
+        }>;
+    }>(`/api/devices/${deviceId}/bots/${botId}/chats`);
+}
+
+export async function updateDeviceBotChatTarget(
+    deviceId: number,
+    botId: number,
+    chatId: number,
+    patch: { pingEnabled: boolean; portEnabled: boolean },
+) {
+    return api<{ success: boolean }>(
+        `/api/devices/${deviceId}/bots/${botId}/chats/${chatId}`,
+        {
+            method: "PATCH",
+            body: JSON.stringify(patch),
+        },
+    );
+}

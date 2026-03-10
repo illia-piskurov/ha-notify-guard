@@ -26,6 +26,7 @@
         openDeviceHistory,
         updateDevice,
         toggleAssignedBot,
+        openBotChatSettings,
         statusVariant,
         statusLabel,
     }: {
@@ -52,6 +53,7 @@
             botId: number,
             checked: boolean,
         ) => void;
+        openBotChatSettings: (device: Device, bot: Bot) => void | Promise<void>;
         statusVariant: (
             status: string,
         ) => "default" | "secondary" | "destructive" | "outline";
@@ -260,7 +262,7 @@
                                         </span>
                                     {/if}
                                     {#each bots as bot (bot.id)}
-                                        <label
+                                        <div
                                             class="flex items-center gap-2 text-xs"
                                         >
                                             <Checkbox
@@ -274,8 +276,21 @@
                                                         Boolean(checked),
                                                     )}
                                             />
-                                            <span>{bot.name}</span>
-                                        </label>
+                                            <button
+                                                class="text-primary hover:underline disabled:text-muted-foreground disabled:no-underline"
+                                                onclick={() =>
+                                                    openBotChatSettings(
+                                                        device,
+                                                        bot,
+                                                    )}
+                                                disabled={!device.assignedBotIds.includes(
+                                                    bot.id,
+                                                )}
+                                                type="button"
+                                            >
+                                                {bot.name}
+                                            </button>
+                                        </div>
                                     {/each}
                                 </div>
                             </Table.Cell>
