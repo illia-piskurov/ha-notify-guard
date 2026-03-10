@@ -89,6 +89,7 @@ describe('Notify Guard API integration', () => {
     let BotChat: (typeof import('../../src/db/entities'))['BotChat'];
     let Chat: (typeof import('../../src/db/entities'))['Chat'];
     let Device: (typeof import('../../src/db/entities'))['Device'];
+    let Notification: (typeof import('../../src/db/entities'))['Notification'];
 
     beforeAll(async () => {
         process.env.NOTIFY_GUARD_DB_PATH = testDbPath;
@@ -103,6 +104,7 @@ describe('Notify Guard API integration', () => {
         BotChat = entitiesModule.BotChat;
         Chat = entitiesModule.Chat;
         Device = entitiesModule.Device;
+        Notification = entitiesModule.Notification;
 
         if (!dataSource.isInitialized) {
             await dataSource.initialize();
@@ -406,6 +408,68 @@ describe('Notify Guard API integration', () => {
         expect(payload.queued).toBe(1);
         expect(payload.deduplicated).toBe(false);
         expect(payload.notification_ids.length).toBe(1);
+    });
+
+    it('inbound concurrent requests with same idempotency_key create only one row per target', async () => {
+        await seedBotWithChats({
+            name: 'RaceBot',
+            chats: [{ chatId: '9911', isActive: true }],
+        });
+
+        const requestBody = {
+            bot_name: 'RaceBot',
+            text: 'race inbound',
+            idempotency_key: 'race-key-1',
+        };
+
+        const [responseA, responseB] = await Promise.all([
+            app.request('/api/inbound/messages', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody),
+            }),
+            app.request('/api/inbound/messages', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody),
+            }),
+        ]);
+
+        const statuses = [responseA.status, responseB.status];
+        expect(statuses.some((status) => status === 202)).toBe(true);
+        expect(statuses.every((status) => status === 202 || status === 500)).toBe(true);
+
+        const payloads: InboundResponse[] = [];
+        if (responseA.status === 202) {
+            payloads.push(await readJson<InboundResponse>(responseA));
+        }
+        if (responseB.status === 202) {
+            payloads.push(await readJson<InboundResponse>(responseB));
+        }
+
+        for (const payload of payloads) {
+            expect(payload.success).toBe(true);
+        }
+
+        const allIds = payloads.flatMap((payload) => payload.notification_ids);
+        if (allIds.length > 0) {
+            expect(new Set(allIds).size).toBe(1);
+        }
+
+        const followUpResponse = await app.request('/api/inbound/messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody),
+        });
+        expect(followUpResponse.status).toBe(202);
+
+        const followUpPayload = await readJson<InboundResponse>(followUpResponse);
+        expect(followUpPayload.success).toBe(true);
+        expect([0, 1]).toContain(followUpPayload.queued);
+
+        const notificationRepo = dataSource.getRepository(Notification);
+        const rows = await notificationRepo.findBy({ idempotencyKey: 'race-key-1' });
+        expect(rows.length).toBe(1);
     });
 
     it('inbound returns 404 for unknown bot_name', async () => {

@@ -2,6 +2,7 @@ import {
     Column,
     CreateDateColumn,
     Entity,
+    Index,
     PrimaryColumn,
     PrimaryGeneratedColumn,
     UpdateDateColumn,
@@ -137,6 +138,7 @@ export class DevicePortMonitor {
 }
 
 @Entity('notifications')
+@Index('UQ_notifications_bot_chat_idempotency', ['botId', 'chatId', 'idempotencyKey'], { unique: true })
 export class Notification {
     @PrimaryGeneratedColumn()
     id!: number;
@@ -160,7 +162,7 @@ export class Notification {
     message!: string;
 
     @Column({ type: 'text', default: 'pending' })
-    status!: 'pending' | 'failed' | 'sent';
+    status!: 'pending' | 'processing' | 'failed' | 'sent';
 
     @Column({ type: 'integer', default: 0 })
     attempts!: number;
@@ -170,6 +172,12 @@ export class Notification {
 
     @Column({ name: 'next_attempt_at', type: 'datetime', nullable: true })
     nextAttemptAt!: Date | null;
+
+    @Column({ name: 'processing_token', type: 'text', nullable: true })
+    processingToken!: string | null;
+
+    @Column({ name: 'processing_started_at', type: 'datetime', nullable: true })
+    processingStartedAt!: Date | null;
 
     @CreateDateColumn({ name: 'created_at', type: 'datetime' })
     createdAt!: Date;

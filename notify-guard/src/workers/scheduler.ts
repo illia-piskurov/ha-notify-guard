@@ -2,6 +2,7 @@ import { runMonitorCycle } from '../services/monitor';
 import { runTelegramWorker } from '../services/telegram';
 
 let isMonitorCycleRunning = false;
+let isTelegramWorkerRunning = false;
 
 export function startBackgroundWorkers() {
     setInterval(() => {
@@ -20,8 +21,17 @@ export function startBackgroundWorkers() {
     }, 30_000);
 
     setInterval(() => {
-        runTelegramWorker().catch((error) => {
-            console.error('telegram worker failed:', error);
-        });
+        if (isTelegramWorkerRunning) {
+            return;
+        }
+
+        isTelegramWorkerRunning = true;
+        runTelegramWorker()
+            .catch((error) => {
+                console.error('telegram worker failed:', error);
+            })
+            .finally(() => {
+                isTelegramWorkerRunning = false;
+            });
     }, 5_000);
 }

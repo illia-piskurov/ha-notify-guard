@@ -1,22 +1,14 @@
+import { randomUUID } from 'node:crypto';
+import type { EntityManager } from 'typeorm';
 import { In } from 'typeorm';
 import { dataSource } from '../db/data-source';
 import { Bot, BotChat, Chat, Device, DeviceNotification, DeviceNotificationTarget, Notification } from '../db/entities';
 
+const TELEGRAM_BATCH_SIZE = 20;
+const PROCESSING_STALE_MS = 5 * 60_000;
+
 export async function runTelegramWorker() {
-    const notificationRepo = dataSource.getRepository(Notification);
-    const now = new Date();
-    const jobs = await notificationRepo
-        .createQueryBuilder('notification')
-        .where('(notification.status = :pending OR notification.status = :failed)', {
-            pending: 'pending',
-            failed: 'failed',
-        })
-        .andWhere('(notification.next_attempt_at IS NULL OR notification.next_attempt_at <= :now)', {
-            now,
-        })
-        .orderBy('notification.id', 'ASC')
-        .limit(20)
-        .getMany();
+    const jobs = await claimNotificationJobs(TELEGRAM_BATCH_SIZE);
 
     for (const job of jobs) {
         try {
@@ -33,28 +25,54 @@ export async function runTelegramWorker() {
                 throw new Error(`Telegram API ${response.status}`);
             }
 
-            job.status = 'sent';
-            job.sentAt = new Date();
-            job.attempts += 1;
-            job.lastError = null;
-            job.nextAttemptAt = null;
-            await notificationRepo.save(job);
+            await dataSource.getRepository(Notification).update(
+                {
+                    id: job.id,
+                    status: 'processing',
+                    processingToken: job.processingToken,
+                },
+                {
+                    status: 'sent',
+                    sentAt: new Date(),
+                    attempts: job.attempts + 1,
+                    lastError: null,
+                    nextAttemptAt: null,
+                    processingToken: null,
+                    processingStartedAt: null,
+                },
+            );
         } catch (error) {
             const attempts = job.attempts + 1;
-            job.status = 'failed';
-            job.attempts = attempts;
-            job.lastError = toErrorMessage(error);
-            job.nextAttemptAt = new Date(Date.now() + getRetryDelayMs(attempts));
-            await notificationRepo.save(job);
+            await dataSource.getRepository(Notification).update(
+                {
+                    id: job.id,
+                    status: 'processing',
+                    processingToken: job.processingToken,
+                },
+                {
+                    status: 'failed',
+                    attempts,
+                    lastError: toErrorMessage(error),
+                    nextAttemptAt: new Date(Date.now() + getRetryDelayMs(attempts)),
+                    processingToken: null,
+                    processingStartedAt: null,
+                },
+            );
         }
     }
 }
 
-export async function queueAlert(device: Device, message: string, kind: 'ping' | 'port') {
-    const mappingRepo = dataSource.getRepository(DeviceNotification);
-    const targetRepo = dataSource.getRepository(DeviceNotificationTarget);
-    const botRepo = dataSource.getRepository(Bot);
-    const notificationRepo = dataSource.getRepository(Notification);
+export async function queueAlert(
+    device: Device,
+    message: string,
+    kind: 'ping' | 'port',
+    manager?: EntityManager,
+) {
+    const repoManager = manager ?? dataSource.manager;
+    const mappingRepo = repoManager.getRepository(DeviceNotification);
+    const targetRepo = repoManager.getRepository(DeviceNotificationTarget);
+    const botRepo = repoManager.getRepository(Bot);
+    const notificationRepo = repoManager.getRepository(Notification);
 
     const mappings = await mappingRepo.findBy({ deviceId: device.id });
     if (mappings.length === 0) {
@@ -209,13 +227,54 @@ export async function queueInboundMessageByBotName(input: {
             message: input.message,
             status: 'pending',
             attempts: 0,
+            processingToken: null,
+            processingStartedAt: null,
             sentAt: null,
             lastError: null,
             nextAttemptAt: null,
         }),
     );
 
-    const created = await notificationRepo.save(notifications);
+    let created: Notification[] | null = null;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+        try {
+            created = await notificationRepo.save(notifications);
+            break;
+        } catch (error) {
+            if (normalizedIdempotencyKey && isUniqueViolation(error)) {
+                const existing = await findExistingIdempotentNotifications(
+                    notificationRepo,
+                    bot.id,
+                    targetChats.map((chat) => chat.targetChatId),
+                    normalizedIdempotencyKey,
+                );
+
+                if (existing.length === 0) {
+                    throw error;
+                }
+
+                return {
+                    success: true as const,
+                    deduplicated: true as const,
+                    botId: bot.id,
+                    botName: bot.name,
+                    queued: 0,
+                    notificationIds: existing.map((item) => item.id),
+                };
+            }
+
+            if (isSqliteBusy(error) && attempt < 3) {
+                await sleep(attempt * 15);
+                continue;
+            }
+
+            throw error;
+        }
+    }
+
+    if (!created) {
+        throw new Error('failed to persist inbound notifications');
+    }
 
     return {
         success: true as const,
@@ -225,6 +284,74 @@ export async function queueInboundMessageByBotName(input: {
         queued: created.length,
         notificationIds: created.map((item) => item.id),
     };
+}
+
+async function claimNotificationJobs(limit: number): Promise<Notification[]> {
+    const now = new Date();
+    const staleBefore = new Date(now.getTime() - PROCESSING_STALE_MS);
+    const claimToken = randomUUID();
+
+    return dataSource.transaction(async (manager) => {
+        const notificationRepo = manager.getRepository(Notification);
+
+        await notificationRepo
+            .createQueryBuilder()
+            .update(Notification)
+            .set({
+                status: 'failed',
+                lastError: 'processing timeout; recovered for retry',
+                nextAttemptAt: now,
+                processingToken: null,
+                processingStartedAt: null,
+            })
+            .where('status = :processing', { processing: 'processing' })
+            .andWhere('processing_started_at IS NOT NULL')
+            .andWhere('processing_started_at <= :staleBefore', { staleBefore })
+            .execute();
+
+        const candidateRows = await notificationRepo
+            .createQueryBuilder('notification')
+            .select('notification.id', 'id')
+            .where('(notification.status = :pending OR notification.status = :failed)', {
+                pending: 'pending',
+                failed: 'failed',
+            })
+            .andWhere('(notification.next_attempt_at IS NULL OR notification.next_attempt_at <= :now)', {
+                now,
+            })
+            .orderBy('notification.id', 'ASC')
+            .limit(limit)
+            .getRawMany<{ id: number }>();
+
+        const candidateIds = candidateRows
+            .map((row) => Number(row.id))
+            .filter((id) => Number.isInteger(id));
+
+        if (candidateIds.length === 0) {
+            return [];
+        }
+
+        await notificationRepo
+            .createQueryBuilder()
+            .update(Notification)
+            .set({
+                status: 'processing',
+                processingToken: claimToken,
+                processingStartedAt: now,
+            })
+            .whereInIds(candidateIds)
+            .andWhere('(status = :pending OR status = :failed)', {
+                pending: 'pending',
+                failed: 'failed',
+            })
+            .execute();
+
+        return notificationRepo
+            .createQueryBuilder('notification')
+            .where('notification.processing_token = :claimToken', { claimToken })
+            .orderBy('notification.id', 'ASC')
+            .getMany();
+    });
 }
 
 async function resolveBotTargetChats(botIds: number[]) {
@@ -285,6 +412,48 @@ function toErrorMessage(error: unknown): string {
     }
 
     return String(error);
+}
+
+function isUniqueViolation(error: unknown): boolean {
+    const text = toErrorMessage(error).toLowerCase();
+    return text.includes('unique constraint') || text.includes('duplicate');
+}
+
+function isSqliteBusy(error: unknown): boolean {
+    const text = toErrorMessage(error).toLowerCase();
+    return text.includes('sqlite_busy') || text.includes('database is locked');
+}
+
+async function findExistingIdempotentNotifications(
+    notificationRepo: ReturnType<typeof dataSource.getRepository<Notification>>,
+    botId: number,
+    chatIds: string[],
+    idempotencyKey: string,
+): Promise<Notification[]> {
+    for (const delayMs of [0, 10, 25] as const) {
+        if (delayMs > 0) {
+            await sleep(delayMs);
+        }
+
+        const existing = await notificationRepo.find({
+            where: chatIds.map((chatId) => ({
+                botId,
+                chatId,
+                idempotencyKey,
+            })),
+            order: { id: 'ASC' },
+        });
+
+        if (existing.length > 0) {
+            return existing;
+        }
+    }
+
+    return [];
+}
+
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function getRetryDelayMs(attempt: number): number {

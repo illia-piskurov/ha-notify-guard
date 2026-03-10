@@ -1,13 +1,51 @@
 import 'reflect-metadata';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { EventEmitter } from 'node:events';
 import { existsSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
+
+const queueAlertCalls: unknown[][] = [];
 
 const portStates = new Map<number, 'open' | 'closed'>();
 
 vi.mock('node:net', () => {
-    class MockSocket extends EventEmitter {
+    class MockSocket {
+        private listeners = new Map<string, Array<(...args: unknown[]) => void>>();
+
+        once(event: string, listener: (...args: unknown[]) => void) {
+            const wrapped = (...args: unknown[]) => {
+                this.off(event, wrapped);
+                listener(...args);
+            };
+            this.on(event, wrapped);
+            return this;
+        }
+
+        on(event: string, listener: (...args: unknown[]) => void) {
+            const group = this.listeners.get(event) ?? [];
+            group.push(listener);
+            this.listeners.set(event, group);
+            return this;
+        }
+
+        off(event: string, listener: (...args: unknown[]) => void) {
+            const group = this.listeners.get(event) ?? [];
+            this.listeners.set(event, group.filter((item) => item !== listener));
+            return this;
+        }
+
+        emit(event: string, ...args: unknown[]) {
+            const group = this.listeners.get(event) ?? [];
+            for (const listener of group) {
+                listener(...args);
+            }
+            return this;
+        }
+
+        removeAllListeners() {
+            this.listeners.clear();
+            return this;
+        }
+
         setTimeout(_ms: number) {
             return this;
         }
@@ -32,8 +70,21 @@ vi.mock('node:net', () => {
 
 vi.mock('node:child_process', () => ({
     spawn: () => {
-        const emitter = new EventEmitter() as EventEmitter & {
-            on: (event: 'close' | 'error', listener: (...args: unknown[]) => void) => typeof emitter;
+        const listeners = new Map<string, Array<(...args: unknown[]) => void>>();
+
+        const emitter = {
+            on(event: 'close' | 'error', listener: (...args: unknown[]) => void) {
+                const group = listeners.get(event) ?? [];
+                group.push(listener);
+                listeners.set(event, group);
+                return emitter;
+            },
+            emit(event: 'close' | 'error', ...args: unknown[]) {
+                const group = listeners.get(event) ?? [];
+                for (const listener of group) {
+                    listener(...args);
+                }
+            },
         };
 
         setTimeout(() => {
@@ -45,8 +96,10 @@ vi.mock('node:child_process', () => ({
 }));
 
 vi.mock('../../src/services/telegram', () => ({
-    queueAlert: vi.fn(async () => undefined),
-    runTelegramWorker: vi.fn(async () => undefined),
+    queueAlert: async (...args: unknown[]) => {
+        queueAlertCalls.push(args);
+    },
+    runTelegramWorker: async () => undefined,
 }));
 
 describe('monitor cycle port alerts', () => {
@@ -56,8 +109,7 @@ describe('monitor cycle port alerts', () => {
     let runMonitorCycle: (typeof import('../../src/services/monitor'))['runMonitorCycle'];
     let Device: (typeof import('../../src/db/entities'))['Device'];
     let DevicePortMonitor: (typeof import('../../src/db/entities'))['DevicePortMonitor'];
-    let queueAlertMock: ReturnType<typeof vi.fn>;
-    let setTimeoutSpy: ReturnType<typeof vi.spyOn>;
+    let setTimeoutSpy: { mockRestore: () => void } | null = null;
 
     beforeAll(async () => {
         process.env.NOTIFY_GUARD_DB_PATH = testDbPath;
@@ -65,13 +117,10 @@ describe('monitor cycle port alerts', () => {
         const dataSourceModule = await import('../../src/db/data-source');
         const entitiesModule = await import('../../src/db/entities');
         const monitorModule = await import('../../src/services/monitor');
-        const telegramModule = await import('../../src/services/telegram');
-
         dataSource = dataSourceModule.dataSource;
         runMonitorCycle = monitorModule.runMonitorCycle;
         Device = entitiesModule.Device;
         DevicePortMonitor = entitiesModule.DevicePortMonitor;
-        queueAlertMock = telegramModule.queueAlert as unknown as ReturnType<typeof vi.fn>;
 
         if (!dataSource.isInitialized) {
             await dataSource.initialize();
@@ -80,10 +129,10 @@ describe('monitor cycle port alerts', () => {
 
     beforeEach(async () => {
         await dataSource.synchronize(true);
-        queueAlertMock.mockClear();
+        queueAlertCalls.length = 0;
         portStates.clear();
 
-        setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((callback: TimerHandler, _delay?: number, ...args: unknown[]) => {
+        setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((callback: Parameters<typeof setTimeout>[0], _delay?: number, ...args: unknown[]) => {
             if (typeof callback === 'function') {
                 (callback as (...input: unknown[]) => void)(...args);
             }
@@ -93,7 +142,8 @@ describe('monitor cycle port alerts', () => {
     });
 
     afterEach(() => {
-        setTimeoutSpy.mockRestore();
+        setTimeoutSpy?.mockRestore();
+        setTimeoutSpy = null;
     });
 
     afterAll(async () => {
@@ -111,11 +161,11 @@ describe('monitor cycle port alerts', () => {
         portStates.set(2163, 'closed');
 
         await runCycleWithTimers(runMonitorCycle);
-        expect(queueAlertMock).toHaveBeenCalledTimes(1);
-        expect(String(queueAlertMock.mock.calls[0]?.[1] ?? '')).toContain('TCP/2163');
+        expect(queueAlertCalls.length).toBe(1);
+        expect(String(queueAlertCalls[0]?.[1] ?? '')).toContain('TCP/2163');
 
         await runCycleWithTimers(runMonitorCycle);
-        expect(queueAlertMock).toHaveBeenCalledTimes(1);
+        expect(queueAlertCalls.length).toBe(1);
     });
 
     it('sends alert again after recovery and next failure', async () => {
@@ -123,15 +173,15 @@ describe('monitor cycle port alerts', () => {
 
         portStates.set(1883, 'closed');
         await runCycleWithTimers(runMonitorCycle);
-        expect(queueAlertMock).toHaveBeenCalledTimes(1);
+        expect(queueAlertCalls.length).toBe(1);
 
         portStates.set(1883, 'open');
         await runCycleWithTimers(runMonitorCycle);
-        expect(queueAlertMock).toHaveBeenCalledTimes(1);
+        expect(queueAlertCalls.length).toBe(1);
 
         portStates.set(1883, 'closed');
         await runCycleWithTimers(runMonitorCycle);
-        expect(queueAlertMock).toHaveBeenCalledTimes(2);
+        expect(queueAlertCalls.length).toBe(2);
     });
 
     async function runCycleWithTimers(runCycle: () => Promise<void>) {

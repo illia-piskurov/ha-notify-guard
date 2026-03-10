@@ -71,13 +71,37 @@ export async function runMonitorCycle() {
             }
 
             if (portStatus === 'closed' && !portAlertState.downSent) {
-                await queueAlert(
-                    device,
-                    `⚠️ Port fail: ${device.name} (${device.ip}) ${portMonitor.label} TCP/${portMonitor.port} is closed`,
-                    'port',
-                );
+                await dataSource.transaction(async (manager) => {
+                    const txPortAlertStateRepo = manager.getRepository(DevicePortAlertState);
+                    let txPortAlertState = await txPortAlertStateRepo.findOneBy({
+                        deviceId: device.id,
+                        port: portMonitor.port,
+                    });
+
+                    if (!txPortAlertState) {
+                        txPortAlertState = txPortAlertStateRepo.create({
+                            deviceId: device.id,
+                            port: portMonitor.port,
+                            downSent: false,
+                        });
+                    }
+
+                    if (txPortAlertState.downSent) {
+                        return;
+                    }
+
+                    await queueAlert(
+                        device,
+                        `⚠️ Port fail: ${device.name} (${device.ip}) ${portMonitor.label} TCP/${portMonitor.port} is closed`,
+                        'port',
+                        manager,
+                    );
+
+                    txPortAlertState.downSent = true;
+                    await txPortAlertStateRepo.save(txPortAlertState);
+                });
+
                 portAlertState.downSent = true;
-                await portAlertStateRepo.save(portAlertState);
             }
 
             if (portStatus === 'open' && portAlertState.downSent) {
@@ -105,7 +129,32 @@ export async function runMonitorCycle() {
         let alertStateChanged = false;
 
         if (pingEnabled && currentPingStatus === 'offline' && !alertState.pingDownSent) {
-            await queueAlert(device, `🚨 Ping fail: ${device.name} (${device.ip}) is unreachable`, 'ping');
+            await dataSource.transaction(async (manager) => {
+                const txAlertStateRepo = manager.getRepository(DeviceAlertState);
+                let txAlertState = await txAlertStateRepo.findOneBy({ deviceId: device.id });
+
+                if (!txAlertState) {
+                    txAlertState = txAlertStateRepo.create({
+                        deviceId: device.id,
+                        pingDownSent: false,
+                    });
+                }
+
+                if (txAlertState.pingDownSent) {
+                    return;
+                }
+
+                await queueAlert(
+                    device,
+                    `🚨 Ping fail: ${device.name} (${device.ip}) is unreachable`,
+                    'ping',
+                    manager,
+                );
+
+                txAlertState.pingDownSent = true;
+                await txAlertStateRepo.save(txAlertState);
+            });
+
             alertState.pingDownSent = true;
             alertStateChanged = true;
         }

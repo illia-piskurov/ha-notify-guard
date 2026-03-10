@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.1.1 - 2026-03-10
+
+### Added
+- Notification queue processing state (`processing`) with claim token metadata for safer worker execution.
+- Database uniqueness constraint for inbound idempotency (`bot_id + chat_id + idempotency_key`).
+- New reliability-focused test coverage:
+  - Telegram worker claim/sent/failed flow
+  - Stale `processing` recovery flow
+  - Monitor transaction rollback behavior when alert queueing fails
+  - Scheduler lock behavior for both monitor and Telegram workers
+  - Concurrent inbound idempotency scenario
+
+### Changed
+- Telegram worker now uses atomic job claim into `processing` and clears claim metadata on completion.
+- Telegram worker now recovers stale `processing` jobs and re-queues them for retry.
+- Inbound enqueue path is hardened for SQLite contention (`SQLITE_BUSY` / locked database retry).
+- Alert enqueue and alert-state updates in monitor cycle are now transactional to avoid partial writes during failures.
+
+### Fixed
+- Reduced duplicate-send risk caused by overlapping worker runs.
+- Improved resilience against race conditions during concurrent inbound requests with identical idempotency keys.
+
 ## 1.1.0 - 2026-03-10
 
 ### Added
