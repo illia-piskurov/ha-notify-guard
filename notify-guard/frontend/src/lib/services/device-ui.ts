@@ -19,7 +19,7 @@ export function statusVariant(status: string): StatusBadgeVariant {
 }
 
 export function statusLabel(
-    kind: "ping" | "modbus",
+    kind: "ping",
     status: string,
 ): string | null {
     if (

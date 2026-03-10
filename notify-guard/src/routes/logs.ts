@@ -48,6 +48,11 @@ export function registerLogsRoutes(app: Hono) {
             })),
         });
     });
+
+    app.post('/api/admin/reset-db', async (c) => {
+        await dataSource.synchronize(true);
+        return c.json({ success: true });
+    });
 }
 
 function toDateValue(value: Date | string | null): string | null {

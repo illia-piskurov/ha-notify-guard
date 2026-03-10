@@ -25,6 +25,7 @@
         toggleBotChatAssignment,
         deleteBot,
         deleteChat,
+        updateChat,
     }: {
         bots: Bot[];
         chats: Chat[];
@@ -49,7 +50,44 @@
         ) => void | Promise<void>;
         deleteBot: (botId: number) => void | Promise<void>;
         deleteChat: (chatId: number) => void | Promise<void>;
+        updateChat: (
+            chatId: number,
+            name: string,
+            nextChatId: string,
+        ) => void | Promise<void>;
     } = $props();
+
+    let editingChatId = $state<number | null>(null);
+    let editingChatName = $state("");
+    let editingChatValue = $state("");
+    let isSavingChat = $state(false);
+
+    function startEditChat(chat: Chat) {
+        editingChatId = chat.id;
+        editingChatName = chat.name;
+        editingChatValue = chat.chatId;
+    }
+
+    function cancelEditChat() {
+        editingChatId = null;
+        editingChatName = "";
+        editingChatValue = "";
+        isSavingChat = false;
+    }
+
+    async function saveEditChat(chatId: number) {
+        if (isSavingChat) {
+            return;
+        }
+
+        isSavingChat = true;
+        try {
+            await updateChat(chatId, editingChatName, editingChatValue);
+            cancelEditChat();
+        } catch {
+            isSavingChat = false;
+        }
+    }
 </script>
 
 <section class="flex min-h-0 flex-1 flex-col gap-3">
@@ -237,16 +275,67 @@
                                     }}
                                 />
                             </Table.Cell>
-                            <Table.Cell>{chat.name}</Table.Cell>
-                            <Table.Cell>{chat.chatId}</Table.Cell>
                             <Table.Cell>
-                                <Button
-                                    variant="destructive"
-                                    size="sm"
-                                    onclick={() => deleteChat(chat.id)}
-                                >
-                                    {$_("bots.delete")}
-                                </Button>
+                                {#if editingChatId === chat.id}
+                                    <input
+                                        class="bg-background border-input w-full min-w-[140px] rounded-md border px-2 py-1 text-sm"
+                                        bind:value={editingChatName}
+                                    />
+                                {:else}
+                                    <button
+                                        class="hover:text-foreground/80 text-left underline-offset-2 hover:underline"
+                                        onclick={() => startEditChat(chat)}
+                                        type="button"
+                                    >
+                                        {chat.name}
+                                    </button>
+                                {/if}
+                            </Table.Cell>
+                            <Table.Cell>
+                                {#if editingChatId === chat.id}
+                                    <input
+                                        class="bg-background border-input w-full min-w-[160px] rounded-md border px-2 py-1 text-sm"
+                                        bind:value={editingChatValue}
+                                    />
+                                {:else}
+                                    <button
+                                        class="hover:text-foreground/80 text-left underline-offset-2 hover:underline"
+                                        onclick={() => startEditChat(chat)}
+                                        type="button"
+                                    >
+                                        {chat.chatId}
+                                    </button>
+                                {/if}
+                            </Table.Cell>
+                            <Table.Cell>
+                                <div class="flex items-center gap-2">
+                                    {#if editingChatId === chat.id}
+                                        <Button
+                                            size="sm"
+                                            onclick={() =>
+                                                saveEditChat(chat.id)}
+                                            disabled={isSavingChat}
+                                        >
+                                            {$_("bots.save")}
+                                        </Button>
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            onclick={cancelEditChat}
+                                            disabled={isSavingChat}
+                                        >
+                                            {$_("bots.cancel")}
+                                        </Button>
+                                    {:else}
+                                        <Button
+                                            variant="destructive"
+                                            size="sm"
+                                            onclick={() => deleteChat(chat.id)}
+                                        >
+                                            {$_("bots.delete")}
+                                        </Button>
+                                    {/if}
+                                </div>
                             </Table.Cell>
                         </Table.Row>
                     {/each}

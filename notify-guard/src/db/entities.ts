@@ -26,12 +26,6 @@ export class Bot {
 
     @Column({ type: 'text' })
     token!: string;
-
-    @Column({ name: 'chat_id', type: 'text', default: '' })
-    chatId!: string;
-
-    @Column({ name: 'is_active', type: 'boolean', default: true })
-    isActive!: boolean;
 }
 
 @Entity('chats')
@@ -84,14 +78,8 @@ export class Device {
     @Column({ name: 'monitor_ping', type: 'boolean', default: false })
     monitorPing!: boolean;
 
-    @Column({ name: 'monitor_modbus', type: 'boolean', default: false })
-    monitorModbus!: boolean;
-
     @Column({ name: 'last_ping_status', type: 'text', default: 'unknown' })
     lastPingStatus!: string;
-
-    @Column({ name: 'last_modbus_status', type: 'text', default: 'unknown' })
-    lastModbusStatus!: string;
 
     @Column({ name: 'last_seen_at', type: 'datetime', nullable: true })
     lastSeenAt!: Date | null;
@@ -227,9 +215,6 @@ export class DeviceAlertState {
 
     @Column({ name: 'ping_down_sent', type: 'boolean', default: false })
     pingDownSent!: boolean;
-
-    @Column({ name: 'modbus_down_sent', type: 'boolean', default: false })
-    modbusDownSent!: boolean;
 
     @UpdateDateColumn({ name: 'updated_at', type: 'datetime', nullable: true })
     updatedAt!: Date | null;

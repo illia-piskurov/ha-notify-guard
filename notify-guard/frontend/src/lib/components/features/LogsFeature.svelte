@@ -8,9 +8,13 @@
     let {
         logs,
         appLogs,
+        resetDatabase,
+        isResettingDatabase,
     }: {
         logs: NotificationLogEntry[];
         appLogs: AppLogEntry[];
+        resetDatabase: () => void | Promise<void>;
+        isResettingDatabase: boolean;
     } = $props();
 
     type SortDirection = "asc" | "desc";
@@ -533,6 +537,29 @@
                     {/each}
                 </Table.Body>
             </Table.Root>
+        </div>
+    </div>
+
+    <div class="rounded-lg border border-red-300 bg-red-50/60 p-4">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+                <h3 class="text-sm font-semibold text-red-700">
+                    {$_("logs.reset.title")}
+                </h3>
+                <p class="mt-1 text-xs text-red-700/90">
+                    {$_("logs.reset.subtitle")}
+                </p>
+            </div>
+
+            <Button
+                variant="destructive"
+                onclick={resetDatabase}
+                disabled={isResettingDatabase}
+            >
+                {isResettingDatabase
+                    ? $_("logs.reset.inProgress")
+                    : $_("logs.reset.action")}
+            </Button>
         </div>
     </div>
 </section>

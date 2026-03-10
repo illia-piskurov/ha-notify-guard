@@ -10,7 +10,7 @@ import type {
 } from "$lib/api/types";
 
 export type DeviceUpdatePatch = Partial<
-    Pick<Device, "monitorPing" | "monitorModbus" | "assignedBotIds">
+    Pick<Device, "monitorPing" | "assignedBotIds">
 >;
 
 export async function fetchAppData() {
@@ -130,6 +130,16 @@ export async function deleteChat(chatId: number) {
     });
 }
 
+export async function updateChat(chatId: number, patch: { name: string; chatId: string }) {
+    return api<{
+        success: boolean;
+        chat: Chat;
+    }>(`/api/chats/${chatId}`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+    });
+}
+
 export async function fetchBotChatAssignments(botId: number) {
     return api<{
         bot: { id: number; name: string };
@@ -145,5 +155,11 @@ export async function setBotChatAssignment(
     return api<{ success: boolean }>(`/api/bots/${botId}/chats/${chatId}`, {
         method: "PATCH",
         body: JSON.stringify({ assigned }),
+    });
+}
+
+export async function resetDatabase() {
+    return api<{ success: boolean }>("/api/admin/reset-db", {
+        method: "POST",
     });
 }

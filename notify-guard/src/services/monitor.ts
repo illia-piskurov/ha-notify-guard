@@ -26,9 +26,9 @@ export async function runMonitorCycle() {
         });
 
         const pingEnabled = device.monitorPing;
-        const modbusEnabled = monitoredPorts.some((item) => item.port === 502) || device.monitorModbus;
+        const modbusEnabled = monitoredPorts.some((item) => item.port === 502);
 
-        if (!pingEnabled && !modbusEnabled && monitoredPorts.length === 0) {
+        if (!pingEnabled && monitoredPorts.length === 0) {
             continue;
         }
 
@@ -98,7 +98,6 @@ export async function runMonitorCycle() {
             alertState = alertStateRepo.create({
                 deviceId: device.id,
                 pingDownSent: false,
-                modbusDownSent: false,
             });
         }
 
@@ -115,18 +114,11 @@ export async function runMonitorCycle() {
             alertStateChanged = true;
         }
 
-        if ((!modbusEnabled || currentModbusStatus === 'open') && alertState.modbusDownSent) {
-            alertState.modbusDownSent = false;
-            alertStateChanged = true;
-        }
-
         if (alertStateChanged) {
             await alertStateRepo.save(alertState);
         }
 
         device.lastPingStatus = currentPingStatus;
-        device.lastModbusStatus = currentModbusStatus;
-        device.monitorModbus = modbusEnabled;
         device.lastSeenAt = new Date();
 
         await deviceRepo.save(device);

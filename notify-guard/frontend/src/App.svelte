@@ -25,8 +25,10 @@
         type DeviceUpdatePatch,
         fetchBotChatAssignments,
         fetchAppData,
+        resetDatabase as resetDatabaseRequest,
         setBotChatAssignment,
         syncNetbox as syncNetboxRequest,
+        updateChat as updateChatRequest,
         updateDevice as updateDeviceRequest,
         updateNetboxSettings,
     } from "$lib/services/app-data";
@@ -72,6 +74,7 @@
 
     let isLoading = $state(false);
     let isSyncing = $state(false);
+    let isResettingDatabase = $state(false);
     let isLoadInFlight = false;
 
     const AUTO_REFRESH_STORAGE_KEY = "notify-guard-auto-refresh-seconds";
@@ -302,6 +305,53 @@
             await loadAll();
         } catch (error) {
             pushToast(toError(error), "error");
+        }
+    }
+
+    async function updateChat(
+        chatId: number,
+        name: string,
+        nextChatId: string,
+    ) {
+        const normalizedName = name.trim();
+        const normalizedChatId = nextChatId.trim();
+
+        if (!normalizedName || !normalizedChatId) {
+            pushToast(t("bots.validation.chatNameAndIdRequired"), "error");
+            return;
+        }
+
+        try {
+            await updateChatRequest(chatId, {
+                name: normalizedName,
+                chatId: normalizedChatId,
+            });
+
+            pushToast(t("bots.chatUpdated"), "success");
+            await loadAll({ showLoader: false });
+        } catch (error) {
+            pushToast(toError(error), "error");
+            throw error;
+        }
+    }
+
+    async function resetDatabase() {
+        if (typeof window !== "undefined") {
+            const accepted = window.confirm(t("logs.reset.confirm"));
+            if (!accepted) {
+                return;
+            }
+        }
+
+        isResettingDatabase = true;
+        try {
+            await resetDatabaseRequest();
+            await loadAll();
+            pushToast(t("logs.reset.done"), "success");
+        } catch (error) {
+            pushToast(toError(error), "error");
+        } finally {
+            isResettingDatabase = false;
         }
     }
 
@@ -581,6 +631,7 @@
                 {toggleBotChatAssignment}
                 {deleteBot}
                 {deleteChat}
+                {updateChat}
             />
         </section>
     {/if}
@@ -616,7 +667,12 @@
                 </div>
             </div>
 
-            <LogsFeature {logs} {appLogs} />
+            <LogsFeature
+                {logs}
+                {appLogs}
+                {resetDatabase}
+                {isResettingDatabase}
+            />
         </section>
     {/if}
 

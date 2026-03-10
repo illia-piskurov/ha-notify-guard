@@ -154,9 +154,7 @@ describe('monitor cycle port alerts', () => {
             ip: '10.0.0.10',
             hasModbusTag: false,
             monitorPing: false,
-            monitorModbus: false,
             lastPingStatus: 'unknown',
-            lastModbusStatus: 'unknown',
             lastSeenAt: null,
         }));
 

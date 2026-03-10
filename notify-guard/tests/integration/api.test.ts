@@ -222,6 +222,39 @@ describe('Notify Guard API integration', () => {
         expect(Array.isArray(logsPayload.app_logs)).toBe(true);
     });
 
+    it('POST /api/admin/reset-db clears existing entities', async () => {
+        const createBotResponse = await app.request('/api/bots', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: 'BeforeResetBot', token: 'token-reset' }),
+        });
+        expect(createBotResponse.status).toBe(200);
+
+        const createChatResponse = await app.request('/api/chats', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chatId: '999', name: 'Before reset chat' }),
+        });
+        expect(createChatResponse.status).toBe(200);
+
+        const resetResponse = await app.request('/api/admin/reset-db', {
+            method: 'POST',
+        });
+        expect(resetResponse.status).toBe(200);
+        const resetPayload = await readJson<SuccessResponse>(resetResponse);
+        expect(resetPayload.success).toBe(true);
+
+        const botsAfterReset = await app.request('/api/bots');
+        expect(botsAfterReset.status).toBe(200);
+        const botsPayload = await readJson<BotsListResponse>(botsAfterReset);
+        expect(botsPayload.bots.length).toBe(0);
+
+        const chatsAfterReset = await app.request('/api/chats');
+        expect(chatsAfterReset.status).toBe(200);
+        const chatsPayload = await readJson<{ chats: Array<{ id: number }> }>(chatsAfterReset);
+        expect(chatsPayload.chats.length).toBe(0);
+    });
+
     it('inbound returns 400 when idempotency_key is missing', async () => {
         const response = await app.request('/api/inbound/messages', {
             method: 'POST',
@@ -447,8 +480,6 @@ describe('Notify Guard API integration', () => {
             botRepo.create({
                 name: input.name,
                 token: 'test-token',
-                chatId: '',
-                isActive: true,
             }),
         );
 
@@ -486,9 +517,7 @@ describe('Notify Guard API integration', () => {
                 ip: input.ip,
                 hasModbusTag: false,
                 monitorPing: false,
-                monitorModbus: false,
                 lastPingStatus: 'unknown',
-                lastModbusStatus: 'unknown',
                 lastSeenAt: null,
             }),
         );

@@ -76,9 +76,12 @@ const en = {
         },
         deleted: "Bot deleted",
         chatCreated: "Chat added",
+        chatUpdated: "Chat updated",
         chatDeleted: "Chat deleted",
         selectBotHint: "Select a bot on the left, then enable chats with checkboxes.",
         addChat: "Add chat",
+        save: "Save",
+        cancel: "Cancel",
         delete: "Delete",
         validation: {
             nameTokenRequired: "Enter bot name and token",
@@ -205,6 +208,14 @@ const en = {
                 path: "Path",
             },
         },
+        reset: {
+            title: "Danger zone",
+            subtitle: "Completely clears SQLite database (bots, chats, devices, logs, history).",
+            action: "Reset database",
+            inProgress: "Resetting...",
+            confirm: "Reset database now? All current data will be deleted.",
+            done: "Database reset completed",
+        },
     },
 };
 
@@ -278,9 +289,12 @@ const uk = {
         },
         deleted: "Бота видалено",
         chatCreated: "Чат додано",
+        chatUpdated: "Чат оновлено",
         chatDeleted: "Чат видалено",
         selectBotHint: "Виберіть бота зліва і увімкніть потрібні чати галочками.",
         addChat: "Додати чат",
+        save: "Зберегти",
+        cancel: "Скасувати",
         delete: "Видалити",
         validation: {
             nameTokenRequired: "Вкажіть назву і токен бота",
@@ -406,6 +420,14 @@ const uk = {
                 status: "Статус",
                 path: "Шлях",
             },
+        },
+        reset: {
+            title: "Небезпечна зона",
+            subtitle: "Повністю очищає SQLite базу (боти, чати, пристрої, логи, історія).",
+            action: "Скинути базу",
+            inProgress: "Скидання...",
+            confirm: "Скинути базу зараз? Усі поточні дані буде видалено.",
+            done: "Скидання бази завершено",
         },
     },
 };

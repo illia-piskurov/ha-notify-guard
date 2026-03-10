@@ -13,9 +13,7 @@ export type DeviceView = {
     ip: string;
     hasModbusTag: boolean;
     monitorPing: boolean;
-    monitorModbus: boolean;
     lastPingStatus: string;
-    lastModbusStatus: string;
     lastSeenAt: string | null;
     assignedBotIds: number[];
     portStatuses: DevicePortStatusView[];
@@ -76,9 +74,7 @@ export async function getDevices(): Promise<DeviceView[]> {
         ip: device.ip,
         hasModbusTag: device.hasModbusTag,
         monitorPing: device.monitorPing,
-        monitorModbus: device.monitorModbus,
         lastPingStatus: device.lastPingStatus,
-        lastModbusStatus: device.lastModbusStatus,
         lastSeenAt: toDateValue(device.lastSeenAt),
         assignedBotIds: map.get(device.id) ?? [],
         portStatuses: portMap.get(device.id) ?? [],

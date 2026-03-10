@@ -55,7 +55,7 @@
         statusVariant: (
             status: string,
         ) => "default" | "secondary" | "destructive" | "outline";
-        statusLabel: (kind: "ping" | "modbus", status: string) => string | null;
+        statusLabel: (kind: "ping", status: string) => string | null;
     } = $props();
 
     let allPingChecked = $derived(

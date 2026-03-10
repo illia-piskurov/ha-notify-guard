@@ -208,11 +208,6 @@ export function registerDevicesRoutes(app: Hono) {
         row.monitorEnabled = body.monitorEnabled;
         await portRepo.save(row);
 
-        if (port === 502) {
-            device.monitorModbus = body.monitorEnabled;
-            await deviceRepo.save(device);
-        }
-
         const ports = await getDevicePorts(id);
         return c.json({ success: true, ports });
     });
@@ -302,7 +297,6 @@ export function registerDevicesRoutes(app: Hono) {
         const id = Number(c.req.param('id'));
         const body = await c.req.json<{
             monitorPing?: boolean;
-            monitorModbus?: boolean;
             assignedBotIds?: number[];
         }>();
 
@@ -320,17 +314,6 @@ export function registerDevicesRoutes(app: Hono) {
 
         if (typeof body.monitorPing === 'boolean') {
             existing.monitorPing = body.monitorPing;
-        }
-
-        if (typeof body.monitorModbus === 'boolean') {
-            existing.monitorModbus = body.monitorModbus;
-
-            const portRepo = dataSource.getRepository(DevicePortMonitor);
-            const modbusPort = await portRepo.findOneBy({ deviceId: id, port: 502 });
-            if (modbusPort) {
-                modbusPort.monitorEnabled = body.monitorModbus;
-                await portRepo.save(modbusPort);
-            }
         }
 
         await deviceRepo.save(existing);

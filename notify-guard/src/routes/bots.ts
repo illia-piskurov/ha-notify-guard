@@ -170,8 +170,6 @@ export function registerBotsRoutes(app: Hono) {
         const entity = botRepo.create({
             name: body.name.trim(),
             token: body.token.trim(),
-            chatId: '',
-            isActive: true,
         });
 
         const created = await botRepo.save(entity);

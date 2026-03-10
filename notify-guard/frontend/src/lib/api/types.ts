@@ -4,9 +4,7 @@ export type Device = {
     ip: string;
     hasModbusTag: boolean;
     monitorPing: boolean;
-    monitorModbus: boolean;
     lastPingStatus: string;
-    lastModbusStatus: string;
     lastSeenAt: string | null;
     assignedBotIds: number[];
     portStatuses: Array<{
