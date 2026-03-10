@@ -3,7 +3,7 @@
 HA Notify Guard is a device monitoring service for Home Assistant:
 
 - pulls IP addresses from NetBox,
-- checks availability via Ping and Modbus TCP (502),
+- checks availability via Ping and monitored TCP ports,
 - sends Telegram notifications (multiple bots and chats),
 - stores queue data and history in SQLite,
 - retries delivery with backoff when internet connectivity is unstable.
@@ -11,12 +11,18 @@ HA Notify Guard is a device monitoring service for Home Assistant:
 ## Features
 
 - NetBox device sync from `ipam/ip-addresses` with pagination.
-- Enable/disable Ping and Modbus monitoring per device.
-- Assign devices to bots, with support for multiple chats per bot.
+- Enable/disable Ping monitoring per device.
+- Per-device TCP port scan and per-port monitoring.
+- Assign devices to bots, with support for reusable chat catalog.
+- Per-device/per-bot/per-chat routing rules (Ping alerts and Port alerts).
 - Anti-spam alert logic: one outage notification per outage episode.
 - Guaranteed delivery: Telegram queue with automatic retries.
 - Device availability history (online/offline slices by period).
 - Svelte web UI with EN/UA localization.
+
+## Changelog
+
+- See [CHANGELOG.md](CHANGELOG.md) for latest updates.
 
 ## Project Structure
 
@@ -67,11 +73,19 @@ npm run check
 - `GET|PUT /api/settings/netbox` — NetBox settings.
 - `POST /api/netbox/sync` — device sync.
 - `GET /api/devices` — device list.
-- `PATCH /api/devices/:id` — update monitoring and bot assignments.
+- `PATCH /api/devices/:id` — update device settings and bot assignments.
+- `GET /api/devices/:id/ports` — list monitored/scanned ports.
+- `POST /api/devices/:id/ports/scan` — scan known ports.
+- `POST /api/devices/:id/ports/scan-custom` — scan a custom port.
+- `PATCH /api/devices/:id/ports/:port` — toggle port monitoring.
+- `DELETE /api/devices/:id/ports/:port` — delete custom port entry.
+- `GET /api/devices/:id/bots/:botId/chats` — get chat routing rules for device+bot.
+- `PATCH /api/devices/:id/bots/:botId/chats/:chatId` — update ping/port routing for chat.
 - `GET /api/devices/:id/history?period=24h|7d|30d|all` — availability history.
 - `GET /api/bots` and CRUD for bots/chats.
 - `POST /api/inbound/messages` — queue external Telegram message by `bot_name`.
 - `GET /api/logs?limit=...&app_limit=...` — notification queue + app logs.
+- `POST /api/admin/reset-db` — reset SQLite database (danger zone action in Logs tab).
 
 ## External Message Inbound API (Node-RED / Home Assistant)
 
@@ -186,7 +200,7 @@ If values are present but the error remains, inspect `app_logs` in `/api/logs` a
 
 ## Backend (Internal Architecture)
 
-Current backend structure after refactoring:
+Current backend structure:
 
 - `src/index.ts` — thin entrypoint (runtime init + `fetch` export).
 - `src/app.ts` — Hono app assembly, middleware, error handler, fallback.
@@ -198,7 +212,7 @@ Current backend structure after refactoring:
 	- `settings-netbox.ts`, `devices.ts`, `bots.ts`, `logs.ts`.
 - `src/services/`
 	- `settings.ts`, `netbox.ts`, `devices.ts`, `history.ts`,
-	- `monitor.ts`, `telegram.ts`, `migrations.ts`, `runtime.ts`.
+	- `monitor.ts`, `telegram.ts`, `runtime.ts`.
 - `src/workers/scheduler.ts` — background monitor/telegram loops.
 - `src/lib/app-logger.ts` — system-level error/exception logging.
 
@@ -206,7 +220,7 @@ This layout simplifies maintenance, testing, and future evolution without growin
 
 ## Frontend (Internal Architecture)
 
-Current frontend structure after step-by-step refactoring:
+Current frontend structure:
 
 - `frontend/src/App.svelte` — layout + wiring (tabs, feature composition, orchestration).
 - `frontend/src/lib/api/`
@@ -215,7 +229,7 @@ Current frontend structure after step-by-step refactoring:
 - `frontend/src/lib/components/features/`
 	- `DevicesFeature.svelte` — devices screen and NetBox settings,
 	- `BotsFeature.svelte` — bots screen,
-	- `BotSettingsDialog.svelte` — manage chats for selected bot,
+	- `DeviceBotChatsDialog.svelte` — per-device bot chat routing modal,
 	- `DeviceHistoryDialog.svelte` — history modal for selected device,
 	- `HistoryFeatureContent.svelte` — history table content (periods/statuses/durations).
 - `frontend/src/lib/stores/`
