@@ -7,6 +7,6 @@ await initializeRuntime();
 
 const app = createApp();
 
-serve({ fetch: app.fetch, port: 8000 }, (info) => {
+serve({ fetch: app.fetch, port: 8000, hostname: '0.0.0.0' }, (info) => {
     console.log(`Server running at http://localhost:${info.port}`);
 });
