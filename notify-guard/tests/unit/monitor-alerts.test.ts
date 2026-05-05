@@ -177,11 +177,14 @@ describe('monitor cycle port alerts', () => {
 
         portStates.set(1883, 'open');
         await runCycleWithTimers(runMonitorCycle);
-        expect(queueAlertCalls.length).toBe(1);
+        // recovery alert should be sent
+        expect(queueAlertCalls.length).toBe(2);
+        expect(String(queueAlertCalls[1]?.[1] ?? '')).toContain('restored');
 
         portStates.set(1883, 'closed');
         await runCycleWithTimers(runMonitorCycle);
-        expect(queueAlertCalls.length).toBe(2);
+        // new down alert after recovery
+        expect(queueAlertCalls.length).toBe(3);
     });
 
     async function runCycleWithTimers(runCycle: () => Promise<void>) {

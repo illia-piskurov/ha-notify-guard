@@ -105,8 +105,37 @@ export async function runMonitorCycle() {
             }
 
             if (portStatus === 'open' && portAlertState.downSent) {
+                await dataSource.transaction(async (manager) => {
+                    const txPortAlertStateRepo = manager.getRepository(DevicePortAlertState);
+                    let txPortAlertState = await txPortAlertStateRepo.findOneBy({
+                        deviceId: device.id,
+                        port: portMonitor.port,
+                    });
+
+                    if (!txPortAlertState) {
+                        txPortAlertState = txPortAlertStateRepo.create({
+                            deviceId: device.id,
+                            port: portMonitor.port,
+                            downSent: false,
+                        });
+                    }
+
+                    if (!txPortAlertState.downSent) {
+                        return;
+                    }
+
+                    await queueAlert(
+                        device,
+                        `✅ Port restored: ${device.name} (${device.ip}) ${portMonitor.label} TCP/${portMonitor.port} is open`,
+                        'port',
+                        manager,
+                    );
+
+                    txPortAlertState.downSent = false;
+                    await txPortAlertStateRepo.save(txPortAlertState);
+                });
+
                 portAlertState.downSent = false;
-                await portAlertStateRepo.save(portAlertState);
             }
         }
 
@@ -160,8 +189,39 @@ export async function runMonitorCycle() {
         }
 
         if ((!pingEnabled || currentPingStatus === 'online') && alertState.pingDownSent) {
-            alertState.pingDownSent = false;
-            alertStateChanged = true;
+            if (pingEnabled && currentPingStatus === 'online') {
+                await dataSource.transaction(async (manager) => {
+                    const txAlertStateRepo = manager.getRepository(DeviceAlertState);
+                    let txAlertState = await txAlertStateRepo.findOneBy({ deviceId: device.id });
+
+                    if (!txAlertState) {
+                        txAlertState = txAlertStateRepo.create({
+                            deviceId: device.id,
+                            pingDownSent: false,
+                        });
+                    }
+
+                    if (!txAlertState.pingDownSent) {
+                        return;
+                    }
+
+                    await queueAlert(
+                        device,
+                        `✅ Restored: ${device.name} (${device.ip}) is reachable`,
+                        'ping',
+                        manager,
+                    );
+
+                    txAlertState.pingDownSent = false;
+                    await txAlertStateRepo.save(txAlertState);
+                });
+
+                alertState.pingDownSent = false;
+                alertStateChanged = true;
+            } else {
+                alertState.pingDownSent = false;
+                alertStateChanged = true;
+            }
         }
 
         if (alertStateChanged) {
